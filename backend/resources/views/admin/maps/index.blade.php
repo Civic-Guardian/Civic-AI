@@ -3,7 +3,7 @@
 @section('title', 'NagarRakshak Map Center')
 
 @section('content')
-<div class="container-fluid d-flex flex-column p-0 m-0" style="height: calc(100vh - 65px);">
+<div class="container-fluid d-flex flex-column p-0 m-0" id="mapContainer" style="height: calc(100vh - 65px); background: #fff;">
     
     <!-- Top Horizontal Filter Panel -->
     <div class="bg-white border-bottom p-3 d-flex align-items-center flex-wrap gap-3 shadow-sm" style="z-index: 1000;">
@@ -38,6 +38,7 @@
 
         <div class="d-flex align-items-center gap-3">
             <span class="badge bg-light text-dark border px-3 py-2 rounded-pill" id="markerCount" style="font-size: 0.85rem;">0 hazards</span>
+            <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" id="fullscreenBtn"><i class="fa-solid fa-expand me-1"></i> Fullscreen</button>
             <button class="btn btn-sm btn-outline-secondary rounded-pill px-3" id="resetFilters"><i class="fa-solid fa-rotate-right me-1"></i> Reset</button>
         </div>
     </div>
@@ -206,6 +207,30 @@
         // Initialize immediately if no Google key
         document.addEventListener('DOMContentLoaded', initLeafletMap);
     @endif
+
+    // Fullscreen Functionality
+    var mapContainer = document.getElementById('mapContainer');
+    var fullscreenBtn = document.getElementById('fullscreenBtn');
+    
+    fullscreenBtn.addEventListener('click', function() {
+        if (!document.fullscreenElement) {
+            mapContainer.requestFullscreen().catch(err => {
+                console.error(`Error attempting to enable fullscreen: ${err.message}`);
+            });
+        } else {
+            document.exitFullscreen();
+        }
+    });
+
+    document.addEventListener('fullscreenchange', function() {
+        if (document.fullscreenElement) {
+            fullscreenBtn.innerHTML = '<i class="fa-solid fa-compress me-1"></i> Exit Fullscreen';
+            mapContainer.style.height = '100vh';
+        } else {
+            fullscreenBtn.innerHTML = '<i class="fa-solid fa-expand me-1"></i> Fullscreen';
+            mapContainer.style.height = 'calc(100vh - 65px)';
+        }
+    });
 
     // Bind Filter Events
     function setupFilterListeners(drawFunction) {
