@@ -67,7 +67,7 @@ fun AppMainScreen() {
                                         saveState = true
                                     }
                                     launchSingleTop = true
-                                    restoreState = true
+                                    restoreState = item.screen.route != Screen.Home.route
                                 }
                             }
                         },

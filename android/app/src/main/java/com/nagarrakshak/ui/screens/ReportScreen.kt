@@ -598,10 +598,11 @@ suspend fun callGeminiApi(descriptionText: String, imageBase64: String? = null):
         val part3 = "IHJtto5rbzot"
         val part4 = "JwCiKURu63CRY5K_A"
         val apiKey = part1 + part2 + part3 + part4
-        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey")
+        val url = URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent")
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/json")
+        conn.setRequestProperty("X-goog-api-key", apiKey)
         conn.doOutput = true
 
         val prompt = "You are an AI civic safety assistant. Analyze this description of a hazard: '$descriptionText'. " +
