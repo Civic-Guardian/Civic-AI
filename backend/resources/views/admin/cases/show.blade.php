@@ -298,38 +298,18 @@
             <div class="card card-custom p-4">
                 <h5 class="fw-bold mb-4"><i class="fa-solid fa-timeline text-green"></i> Case Timeline</h5>
                 <div class="timeline" style="font-size: 0.85rem;">
-                    <div class="d-flex gap-3 mb-3">
-                        <div class="text-success"><i class="fa-solid fa-circle-check fa-lg"></i></div>
-                        <div>
-                            <span class="fw-bold d-block text-dark">Reported</span>
-                            <small class="text-muted">Reported by citizen. {{ $hazard->created_at->format('d M Y, h:i A') }}</small>
+                    @forelse($hazard->getAuditTimeline() as $event)
+                        <div class="d-flex gap-3 mb-3">
+                            <div class="{{ $event->color }}"><i class="fa-solid {{ $event->icon }} fa-lg"></i></div>
+                            <div>
+                                <span class="fw-bold d-block text-dark">{{ $event->title }}</span>
+                                <small class="text-muted d-block mb-1">{{ $event->description }}</small>
+                                <small class="text-secondary" style="font-size: 0.75rem;">{{ $event->time->format('d M Y, h:i A') }}</small>
+                            </div>
                         </div>
-                    </div>
-                    <div class="d-flex gap-3 mb-3">
-                        <div class="text-success"><i class="fa-solid fa-circle-check fa-lg"></i></div>
-                        <div>
-                            <span class="fw-bold d-block text-dark">AI Processed</span>
-                            <small class="text-muted">Gemini analyzed image structure details.</small>
-                        </div>
-                    </div>
-                    <div class="d-flex gap-3 mb-3">
-                        <div class="{{ $hazard->status === 'Verified' || $hazard->status === 'Resolved' ? 'text-success' : 'text-muted' }}">
-                            <i class="fa-solid fa-circle-check fa-lg"></i>
-                        </div>
-                        <div>
-                            <span class="fw-bold d-block text-dark">Verified</span>
-                            <small class="text-muted">Audit state determined by community votes.</small>
-                        </div>
-                    </div>
-                    <div class="d-flex gap-3">
-                        <div class="{{ $hazard->status === 'Resolved' ? 'text-success' : 'text-muted' }}">
-                            <i class="fa-solid fa-circle-check fa-lg"></i>
-                        </div>
-                        <div>
-                            <span class="fw-bold d-block text-dark">Resolved</span>
-                            <small class="text-muted">Resolution verified by municipal actions.</small>
-                        </div>
-                    </div>
+                    @empty
+                        <div class="text-muted text-center py-2">No timeline events found.</div>
+                    @endforelse
                 </div>
             </div>
         </div>
