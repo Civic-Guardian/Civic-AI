@@ -48,44 +48,59 @@
                 <p class="text-secondary leading-relaxed">{{ $hazard->description }}</p>
             </div>
 
-            <!-- AI Analysis -->
+            <!-- Deep AI Insights from AiAnalysis -->
             <div class="card card-custom p-4 border-success mb-4 ai-analysis-card" style="background-color: #F0FDF4;">
-                <h5 class="fw-bold text-green mb-3"><i class="fa-solid fa-brain"></i> Google Gemini AI Analysis</h5>
-                <div class="row g-3 mb-3 text-center">
-                    <div class="col-6 col-sm-3">
-                        <div class="p-3 bg-white rounded-3 border">
-                            <small class="text-muted d-block mb-1">Predicted Category</small>
-                            <span class="fw-bold text-dark">{{ $hazard->category }}</span>
+                <h5 class="fw-bold text-green mb-3"><i class="fa-solid fa-brain"></i> AI Deep Insights</h5>
+                
+                @if($hazard->aiAnalysis)
+                    @if($hazard->aiAnalysis->is_duplicate)
+                        <div class="alert alert-warning border-warning rounded-3 p-3 mb-3 d-flex align-items-center">
+                            <i class="fa-solid fa-clone fa-lg me-3"></i>
+                            <div>
+                                <strong>Duplicate Detected!</strong><br>
+                                <small>The AI has flagged this as a potential duplicate of <a href="{{ route('admin.cases.show', $hazard->aiAnalysis->duplicate_of_id) }}">Case #{{ $hazard->aiAnalysis->duplicate_of_id }}</a>.</small>
+                            </div>
                         </div>
-                    </div>
-                    <div class="col-6 col-sm-3">
-                        <div class="p-3 bg-white rounded-3 border">
-                            <small class="text-muted d-block mb-1">Confidence Score</small>
-                            <span class="fw-bold text-success">{{ $hazard->confidence_score ? round($hazard->confidence_score * 100) : 94 }}%</span>
-                        </div>
-                    </div>
-                    <div class="col-6 col-sm-3">
-                        <div class="p-3 bg-white rounded-3 border">
-                            <small class="text-muted d-block mb-1">AI Severity Score</small>
-                            <span class="fw-bold text-danger">{{ $hazard->ai_severity_score ?: 4 }}/5</span>
-                        </div>
-                    </div>
-                    <div class="col-6 col-sm-3">
-                        <div class="p-3 bg-white rounded-3 border">
-                            <small class="text-muted d-block mb-1">Processing Status</small>
-                            <span class="badge bg-success">Success</span>
-                        </div>
-                    </div>
-                </div>
+                    @endif
 
-                <div class="p-3 bg-white rounded-3 border mb-3">
-                    <h6 class="fw-bold text-dark mb-2">Gemini Analysis Summary</h6>
-                    <p class="mb-0 text-secondary leading-relaxed" style="font-size: 0.9rem;">
-                        {{ $hazard->ai_analysis_summary ?: 'Heuristics AI: Deep structural degradation. Confident classification. High incident likelihood.' }}
-                    </p>
-                </div>
+                    <div class="row g-3 mb-3 text-center">
+                        <div class="col-6 col-sm-3">
+                            <div class="p-3 bg-white rounded-3 border h-100 d-flex flex-column justify-content-center">
+                                <small class="text-muted d-block mb-1">Predicted Category</small>
+                                <span class="fw-bold text-dark" style="font-size: 0.95rem;">{{ $hazard->category }}</span>
+                            </div>
+                        </div>
+                        <div class="col-6 col-sm-3">
+                            <div class="p-3 bg-white rounded-3 border h-100 d-flex flex-column justify-content-center">
+                                <small class="text-muted d-block mb-1">AI Severity Score</small>
+                                <span class="fw-bold text-danger" style="font-size: 1.1rem;">{{ $hazard->aiAnalysis->predicted_severity ?? $hazard->severity }}</span>
+                            </div>
+                        </div>
+                        <div class="col-12 col-sm-6">
+                            <div class="p-3 bg-white rounded-3 border h-100 text-start">
+                                <small class="text-muted d-block mb-1">Severity Reasoning</small>
+                                <span class="text-secondary fw-medium" style="font-size: 0.85rem;">{{ $hazard->aiAnalysis->severity_reasoning ?? 'No reasoning provided.' }}</span>
+                            </div>
+                        </div>
+                    </div>
 
-                <h6 class="fw-bold text-dark mb-2 mt-4"><i class="fa-solid fa-list-check"></i> Raw AI Logs</h6>
+                    <div class="p-3 bg-white rounded-3 border mb-3">
+                        <h6 class="fw-bold text-dark mb-2">Gemini Generated Summary</h6>
+                        <p class="mb-0 text-secondary leading-relaxed" style="font-size: 0.9rem;">
+                            {{ $hazard->aiAnalysis->generated_summary }}
+                        </p>
+                    </div>
+                @else
+                    <!-- Placeholder when no AI analysis exists -->
+                    <div class="p-4 border-secondary mb-4 text-center bg-white rounded-3 border">
+                        <i class="fa-solid fa-robot fa-2x text-muted mb-2"></i>
+                        <h6 class="fw-bold text-secondary">AI Analysis Pending</h6>
+                        <p class="text-muted small mb-0">The AI intelligence service has not analyzed this report yet.</p>
+                    </div>
+                @endif
+
+                <!-- Raw AI Logs Sub-table (Always visible) -->
+                <h6 class="fw-bold text-dark mb-2 mt-2"><i class="fa-solid fa-list-check"></i> Processing Audit Logs</h6>
                 <div class="table-responsive bg-white rounded-3 border">
                     <table class="table table-sm table-hover align-middle mb-0" style="font-size: 0.85rem;">
                         <thead class="table-light">

@@ -17,63 +17,83 @@ class AiController extends Controller
     }
 
     /**
-     * Show AI statistics, settings, and logs.
+     * Show AI Dashboard (Statistics and Charts).
      */
-    public function index(Request $request)
+    public function dashboard(Request $request)
     {
-        // 1. AI Statistics
-        $totalRequests = AiLog::count();
-        $successRequests = AiLog::where('status', 'Success')->count();
-        $failedRequests = AiLog::where('status', 'Failed')->count();
+        $categories = \App\Models\Category::where('is_active', true)->get();
+        
+        $logsQuery = AiLog::query();
+        
+        // Apply filters
+        if ($request->filled('category')) {
+            $logsQuery->where('category', $request->category);
+        }
+        
+        if ($request->filled('date_from')) {
+            $logsQuery->whereDate('created_at', '>=', $request->date_from);
+        }
+        
+        if ($request->filled('date_to')) {
+            $logsQuery->whereDate('created_at', '<=', $request->date_to);
+        }
+        
+        $totalRequests = $logsQuery->count();
+        $successRequests = (clone $logsQuery)->where('status', 'Success')->count();
+        $failedRequests = (clone $logsQuery)->where('status', 'Failed')->count();
         $successRate = $totalRequests > 0 ? round(($successRequests / $totalRequests) * 100, 1) : 100;
         
-        $avgConfidence = AiLog::where('status', 'Success')->avg('confidence');
+        $avgConfidence = (clone $logsQuery)->where('status', 'Success')->avg('confidence');
         $avgConfidence = $avgConfidence ? round($avgConfidence * 100, 1) : 0;
         
-        $avgResponseTime = AiLog::avg('response_time');
+        $avgResponseTime = (clone $logsQuery)->avg('response_time');
         $avgResponseTime = $avgResponseTime ? round($avgResponseTime) : 0;
 
-        // 2. Load settings using new service
-        $settings = $this->aiService->getSettings();
-
-        // 3. AI Logs with filters
-        $logsQuery = AiLog::with('hazard');
-        if ($request->filled('status')) {
-            $logsQuery->where('status', $request->status);
+        // Chart Data (Last 7 days, considering filters)
+        $chartLabels = [];
+        $chartData = [];
+        for ($i = 6; $i >= 0; $i--) {
+            $date = now()->subDays($i);
+            $chartLabels[] = $date->format('M d');
+            
+            $dayQuery = clone $logsQuery;
+            $avgDayConf = $dayQuery->whereDate('created_at', $date->toDateString())
+                                   ->where('status', 'Success')
+                                   ->avg('confidence');
+            $chartData[] = $avgDayConf ? round($avgDayConf * 100, 1) : 0;
         }
-        $logs = $logsQuery->orderBy('created_at', 'desc')->paginate(15);
 
-        return view('admin.ai.index', compact(
-            'totalRequests', 'successRate', 'avgConfidence', 'avgResponseTime',
-            'failedRequests', 'settings', 'logs'
+        return view('admin.ai.dashboard', compact(
+            'totalRequests', 'successRate', 'avgConfidence', 'avgResponseTime', 'failedRequests', 'categories', 'chartLabels', 'chartData'
         ));
     }
 
     /**
-     * Update AI configurations.
+     * Show AI Analysis Logs.
      */
-    public function updateConfig(Request $request)
+    public function logs(Request $request)
     {
-        $request->validate([
-            'confidence_threshold' => 'required|numeric|between:0,1',
-            'classification_prompt' => 'required|string',
-        ]);
+        $categories = \App\Models\Category::where('is_active', true)->get();
+        $logsQuery = AiLog::with('hazard');
+        
+        if ($request->filled('status')) {
+            $logsQuery->where('status', $request->status);
+        }
+        
+        if ($request->filled('category')) {
+            $logsQuery->where('category', $request->category);
+        }
+        
+        if ($request->filled('date_from')) {
+            $logsQuery->whereDate('created_at', '>=', $request->date_from);
+        }
+        
+        if ($request->filled('date_to')) {
+            $logsQuery->whereDate('created_at', '<=', $request->date_to);
+        }
+        
+        $logs = $logsQuery->orderBy('created_at', 'desc')->paginate(15)->withQueryString();
 
-        SettingsService::set('gemini_api_key', $request->gemini_api_key);
-        SettingsService::set('classification_prompt', $request->classification_prompt);
-        SettingsService::set('confidence_threshold', $request->confidence_threshold);
-        SettingsService::set('auto_classification', $request->has('auto_classification') ? '1' : '0');
-        SettingsService::set('auto_severity_detection', $request->has('auto_severity_detection') ? '1' : '0');
-
-        ActivityLog::create([
-            'user_id' => auth()->id(),
-            'type' => 'Admin',
-            'action' => 'Settings Updated',
-            'description' => 'Updated AI center config settings.',
-            'ip_address' => request()->ip(),
-            'user_agent' => request()->userAgent()
-        ]);
-
-        return redirect()->back()->with('success', 'AI configurations saved successfully!');
+        return view('admin.ai.logs', compact('logs', 'categories'));
     }
 }
