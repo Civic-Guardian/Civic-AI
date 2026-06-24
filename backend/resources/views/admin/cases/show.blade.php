@@ -73,7 +73,7 @@
                         <div class="col-6 col-sm-3">
                             <div class="p-3 bg-white rounded-3 border h-100 d-flex flex-column justify-content-center">
                                 <small class="text-muted d-block mb-1">AI Severity Score</small>
-                                <span class="fw-bold text-danger" style="font-size: 1.1rem;">{{ $hazard->severity }}</span>
+                                <span class="fw-bold text-danger" style="font-size: 1.1rem;">{{ $hazard->aiAnalysis->predicted_severity ?? $hazard->severity }}</span>
                             </div>
                         </div>
                         <div class="col-12 col-sm-6">

@@ -12,6 +12,7 @@ class AiAnalysis extends Model
     protected $fillable = [
         'hazard_id',
         'generated_summary',
+        'predicted_severity',
         'severity_reasoning',
         'is_duplicate',
         'duplicate_of_id',
