@@ -47,7 +47,7 @@
 - [ ] Hazard CRUD APIs
 - [ ] Verification APIs
 - [ ] Notification APIs
-- [ ] Maps APIs
+- [x] Maps APIs (Completed: 2026-06-25 02:35 AM)
 - [ ] Profile APIs
 - [ ] Address Resolution From Coordinates
 - [ ] Municipality Complaint Forwarding
