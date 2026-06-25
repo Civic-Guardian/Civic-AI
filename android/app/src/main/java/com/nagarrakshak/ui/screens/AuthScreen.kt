@@ -56,7 +56,6 @@ fun AuthScreen(
 
     var isLoggingIn by remember { mutableStateOf(false) }
     var loadingMessage by remember { mutableStateOf("") }
-    var showGoogleChooser by remember { mutableStateOf(false) }
 
     val signInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -101,8 +100,6 @@ fun AuthScreen(
                             if (isCertError) {
                                 val certExplain = "SSL Certificate Trust Error: Your network/VPN or emulator is intercepting SSL traffic. Please disable VPN/proxies or switch networks."
                                 Toast.makeText(context, certExplain, Toast.LENGTH_LONG).show()
-                                Toast.makeText(context, "Falling back to simulated login for development...", Toast.LENGTH_SHORT).show()
-                                showGoogleChooser = true
                             } else {
                                 Toast.makeText(context, err, Toast.LENGTH_LONG).show()
                             }
@@ -124,113 +121,6 @@ fun AuthScreen(
                 Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
             } else {
                 Toast.makeText(context, "Google Sign-In cancelled", Toast.LENGTH_SHORT).show()
-            }
-            
-            // FALLBACK: If developer error 10 or 12500 (mismatched SHA-1), show the mock chooser so they can still test the flow!
-            if (e.statusCode == 10 || e.statusCode == 12500) {
-                Toast.makeText(context, "Falling back to simulated login for development...", Toast.LENGTH_SHORT).show()
-                showGoogleChooser = true
-            }
-        }
-    }
-
-    // Simulated Google Accounts
-    val googleAccounts = listOf(
-        GoogleAccount("Mihir Aditya", "mihir.aditya@gmail.com", "🧑‍💻"),
-        GoogleAccount("Jaykishan Rawat", "jksonu1436@gmail.com", "👤"),
-        GoogleAccount("Test Citizen", "test.citizen@nagarrakshak.org", "🛡️")
-    )
-
-    if (showGoogleChooser) {
-        Dialog(
-            onDismissRequest = { showGoogleChooser = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(24.dp)
-                    .clip(RoundedCornerShape(24.dp)),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Sign in with Google",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1E293B)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "to continue to NagarRakshak",
-                        fontSize = 14.sp,
-                        color = Color(0xFF64748B)
-                    )
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    googleAccounts.forEach { account ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    showGoogleChooser = false
-                                    isLoggingIn = true
-                                    coroutineScope.launch {
-                                        loadingMessage = "Connecting with Google Play Services..."
-                                        delay(300)
-                                        loadingMessage = "Authenticating via Firebase Auth..."
-                                        delay(300)
-                                        val response = com.nagarrakshak.data.BackendClient.googleLogin(account.name, account.email, null)
-                                        isLoggingIn = false
-                                        
-                                        if (response != null && response.success && response.data != null) {
-                                            val u = response.data.user
-                                            authManager.loginWithGoogle(u.email, u.name, account.avatarEmoji, response.data.token)
-                                            Toast.makeText(context, "Welcome back, ${u.name}!", Toast.LENGTH_SHORT).show()
-                                            onNavigateToHome()
-                                        } else {
-                                            Toast.makeText(context, response?.message ?: "Google Sign-In failed", Toast.LENGTH_LONG).show()
-                                        }
-                                    }
-                                }
-                                .padding(vertical = 12.dp, horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(40.dp)
-                                    .background(Color(0xFFF1F5F9), shape = CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(account.avatarEmoji, fontSize = 20.sp)
-                            }
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Column {
-                                Text(
-                                    text = account.name,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF0F172A)
-                                )
-                                Text(
-                                    text = account.email,
-                                    fontSize = 13.sp,
-                                    color = Color(0xFF64748B)
-                                )
-                            }
-                        }
-                        HorizontalDivider(color = Color(0xFFF1F5F9))
-                    }
-                    
-                    Spacer(modifier = Modifier.height(12.dp))
-                    TextButton(onClick = { showGoogleChooser = false }) {
-                        Text("Cancel", color = Color.Red)
-                    }
-                }
             }
         }
     }
@@ -522,9 +412,3 @@ fun TabButton(
         )
     }
 }
-
-data class GoogleAccount(
-    val name: String,
-    val email: String,
-    val avatarEmoji: String
-)
