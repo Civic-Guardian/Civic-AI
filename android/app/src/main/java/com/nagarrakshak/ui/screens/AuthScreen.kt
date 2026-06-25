@@ -61,65 +61,65 @@ fun AuthScreen(
     val signInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-            try {
-                val account = task.getResult(ApiException::class.java)!!
-                val idToken = account.idToken
-                if (idToken != null) {
-                    isLoggingIn = true
-                    loadingMessage = "Authenticating with Firebase..."
-                    val credential = GoogleAuthProvider.getCredential(idToken, null)
-                    FirebaseAuth.getInstance().signInWithCredential(credential)
-                        .addOnCompleteListener { authTask ->
-                            if (authTask.isSuccessful) {
-                                val firebaseUser = authTask.result?.user
-                                val nameVal = firebaseUser?.displayName ?: account.displayName ?: "Google Citizen"
-                                val emailVal = firebaseUser?.email ?: account.email ?: ""
-                                val photoUrlVal = firebaseUser?.photoUrl?.toString() ?: account.photoUrl?.toString()
-                                
-                                loadingMessage = "Synchronizing profile with backend..."
-                                coroutineScope.launch {
-                                    val response = com.nagarrakshak.data.BackendClient.googleLogin(nameVal, emailVal, photoUrlVal)
-                                    isLoggingIn = false
-                                    if (response != null && response.success && response.data != null) {
-                                        authManager.loginWithGoogle(emailVal, nameVal, photoUrlVal, response.data.token)
-                                        Toast.makeText(context, "Welcome back, $nameVal!", Toast.LENGTH_SHORT).show()
-                                        onNavigateToHome()
-                                    } else {
-                                        Toast.makeText(context, response?.message ?: "Backend verification failed", Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                            } else {
+        isLoggingIn = false
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.getResult(ApiException::class.java)!!
+            val idToken = account.idToken
+            if (idToken != null) {
+                isLoggingIn = true
+                loadingMessage = "Authenticating with Firebase..."
+                val credential = GoogleAuthProvider.getCredential(idToken, null)
+                FirebaseAuth.getInstance().signInWithCredential(credential)
+                    .addOnCompleteListener { authTask ->
+                        if (authTask.isSuccessful) {
+                            val firebaseUser = authTask.result?.user
+                            val nameVal = firebaseUser?.displayName ?: account.displayName ?: "Google Citizen"
+                            val emailVal = firebaseUser?.email ?: account.email ?: ""
+                            val photoUrlVal = firebaseUser?.photoUrl?.toString() ?: account.photoUrl?.toString()
+                            
+                            loadingMessage = "Synchronizing profile with backend..."
+                            coroutineScope.launch {
+                                val response = com.nagarrakshak.data.BackendClient.googleLogin(nameVal, emailVal, photoUrlVal)
                                 isLoggingIn = false
-                                val err = authTask.exception?.message ?: "Firebase Auth failed"
-                                Log.e("AuthScreen", "Firebase Auth error: $err", authTask.exception)
-                                Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                                if (response != null && response.success && response.data != null) {
+                                    authManager.loginWithGoogle(emailVal, nameVal, photoUrlVal, response.data.token)
+                                    Toast.makeText(context, "Welcome back, $nameVal!", Toast.LENGTH_SHORT).show()
+                                    onNavigateToHome()
+                                } else {
+                                    Toast.makeText(context, response?.message ?: "Backend verification failed", Toast.LENGTH_LONG).show()
+                                }
                             }
+                        } else {
+                            isLoggingIn = false
+                            val err = authTask.exception?.message ?: "Firebase Auth failed"
+                            Log.e("AuthScreen", "Firebase Auth error: $err", authTask.exception)
+                            Toast.makeText(context, err, Toast.LENGTH_LONG).show()
                         }
-                } else {
-                    isLoggingIn = false
-                    Toast.makeText(context, "Google Sign-In did not return an ID token", Toast.LENGTH_LONG).show()
-                }
-            } catch (e: ApiException) {
-                isLoggingIn = false
-                Log.e("AuthScreen", "Google sign in api exception: ${e.statusCode}", e)
-                val errorMsg = when (e.statusCode) {
-                    10 -> "Developer Error (10): Please ensure the SHA-1 of your debug keystore is registered in the Firebase Console for com.nagarrakshak."
-                    7 -> "Network Error (7): Please check your internet connection."
-                    else -> "Google Sign-In failed: error code ${e.statusCode}. ${e.message}"
-                }
-                Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
-                
-                // FALLBACK: If developer error 10 (mismatched SHA-1), show the mock chooser so they can still test the flow!
-                if (e.statusCode == 10) {
-                    Toast.makeText(context, "Falling back to simulated login for development...", Toast.LENGTH_SHORT).show()
-                    showGoogleChooser = true
-                }
+                    }
+            } else {
+                Toast.makeText(context, "Google Sign-In did not return an ID token", Toast.LENGTH_LONG).show()
             }
-        } else {
-            isLoggingIn = false
-            Toast.makeText(context, "Google Sign-In cancelled", Toast.LENGTH_SHORT).show()
+        } catch (e: ApiException) {
+            Log.e("AuthScreen", "Google sign in api exception: status=${e.statusCode}, msg=${e.message}", e)
+            val errorMsg = when (e.statusCode) {
+                10 -> "Developer Error (10): Please ensure the SHA-1 of your debug keystore is registered in the Firebase Console for com.nagarrakshak."
+                12500 -> "Sign-In Mismatch (12500): Check Google Play Services configuration, package name, or SHA-1."
+                7 -> "Network Error (7): Please check your internet connection."
+                12501 -> "Google Sign-In cancelled."
+                else -> "Google Sign-In failed: error code ${e.statusCode}. ${e.message}"
+            }
+            if (e.statusCode != 12501) {
+                Toast.makeText(context, errorMsg, Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(context, "Google Sign-In cancelled", Toast.LENGTH_SHORT).show()
+            }
+            
+            // FALLBACK: If developer error 10 or 12500 (mismatched SHA-1), show the mock chooser so they can still test the flow!
+            if (e.statusCode == 10 || e.statusCode == 12500) {
+                Toast.makeText(context, "Falling back to simulated login for development...", Toast.LENGTH_SHORT).show()
+                showGoogleChooser = true
+            }
         }
     }
 
