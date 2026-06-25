@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "280377628764",
+    "project_id": "civicai-60cff",
+    "storage_bucket": "civicai-60cff.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:280377628764:android:8e43489854d015aaeeee99",
+        "android_client_info": {
+          "package_name": "com.nagarrakshak"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "280377628764-8qlvml30baqnumrne1s2r99u7nkn5rd8.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDovlCpnvDQTxh03rA840PzP3DPE54EOkY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "280377628764-8qlvml30baqnumrne1s2r99u7nkn5rd8.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
