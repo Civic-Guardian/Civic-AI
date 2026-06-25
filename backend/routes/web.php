@@ -78,16 +78,22 @@ Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
     Route::delete('settings/categories/{id}/delete', [SettingsController::class, 'destroyCategory'])->name('settings.categories.destroy');
 });
 
-// API Routes for Android Client (v1)
-Route::prefix('api/v1')->group(function () {
-    // Hazards Core
+// API Routes for Android Client
+Route::prefix('api')->group(function () {
+    // Public Authentication endpoints
+    Route::post('auth/register', [\App\Http\Controllers\Api\AuthApiController::class, 'register']);
+    Route::post('auth/login', [\App\Http\Controllers\Api\AuthApiController::class, 'login']);
+    Route::post('auth/google-login', [\App\Http\Controllers\Api\AuthApiController::class, 'googleLogin']);
+
+    // Public Hazards View endpoint (accessible by guest users)
     Route::get('hazards', [\App\Http\Controllers\Api\HazardApiController::class, 'getHazards']);
-    Route::post('hazards', [\App\Http\Controllers\Api\HazardApiController::class, 'storeHazard']);
-    Route::get('hazards/{id}', [\App\Http\Controllers\Api\HazardApiController::class, 'showHazard']);
-    Route::put('hazards/{id}', [\App\Http\Controllers\Api\HazardApiController::class, 'updateHazard']);
-    Route::delete('hazards/{id}', [\App\Http\Controllers\Api\HazardApiController::class, 'deleteHazard']);
-    Route::post('hazards/{id}/verify', [\App\Http\Controllers\Api\HazardApiController::class, 'verifyHazard']);
-    Route::post('hazards/{id}/resolve', [\App\Http\Controllers\Api\HazardApiController::class, 'resolveHazard']);
+
+    // Authenticated Hazards Write actions
+    Route::middleware('api.auth')->group(function () {
+        Route::post('hazards', [\App\Http\Controllers\Api\HazardApiController::class, 'storeHazard']);
+        Route::post('hazards/{id}/verify', [\App\Http\Controllers\Api\HazardApiController::class, 'verifyHazard']);
+        Route::post('hazards/{id}/resolve', [\App\Http\Controllers\Api\HazardApiController::class, 'resolveHazard']);
+    });
 
     // AI Processing
     Route::post('ai/analyze', [\App\Http\Controllers\Api\AiApiController::class, 'analyze']);

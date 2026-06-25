@@ -6,6 +6,13 @@ import android.content.SharedPreferences
 class AuthManager(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("nagarrakshak_auth_prefs", Context.MODE_PRIVATE)
 
+    init {
+        // Automatically synchronize the backend token upon loading the AuthManager
+        if (isLoggedIn) {
+            BackendClient.setAuthToken(authToken)
+        }
+    }
+
     var isLoggedIn: Boolean
         get() = prefs.getBoolean("is_logged_in", false)
         set(value) = prefs.edit().putBoolean("is_logged_in", value).apply()
@@ -30,22 +37,30 @@ class AuthManager(context: Context) {
         get() = prefs.getString("login_type", null) // "google", "email", "guest"
         set(value) = prefs.edit().putString("login_type", value).apply()
 
-    fun loginWithGoogle(email: String, name: String, photoUrl: String?) {
+    var authToken: String?
+        get() = prefs.getString("auth_token", null)
+        set(value) = prefs.edit().putString("auth_token", value).apply()
+
+    fun loginWithGoogle(email: String, name: String, photoUrl: String?, token: String) {
         isLoggedIn = true
         isGuest = false
         userEmail = email
         userName = name
         userPhotoUrl = photoUrl
         loginType = "google"
+        authToken = token
+        BackendClient.setAuthToken(token)
     }
 
-    fun loginWithEmail(email: String, name: String) {
+    fun loginWithEmail(email: String, name: String, token: String) {
         isLoggedIn = true
         isGuest = false
         userEmail = email
         userName = name
         userPhotoUrl = null
         loginType = "email"
+        authToken = token
+        BackendClient.setAuthToken(token)
     }
 
     fun loginAsGuest() {
@@ -55,9 +70,12 @@ class AuthManager(context: Context) {
         userName = "Guest Citizen"
         userPhotoUrl = null
         loginType = "guest"
+        authToken = null
+        BackendClient.setAuthToken(null)
     }
 
     fun logout() {
         prefs.edit().clear().apply()
+        BackendClient.setAuthToken(null)
     }
 }

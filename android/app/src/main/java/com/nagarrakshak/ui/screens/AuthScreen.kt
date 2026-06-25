@@ -96,13 +96,20 @@ fun AuthScreen(
                                     isLoggingIn = true
                                     coroutineScope.launch {
                                         loadingMessage = "Connecting with Google Play Services..."
-                                        delay(1000)
+                                        delay(300)
                                         loadingMessage = "Authenticating via Firebase Auth..."
-                                        delay(1000)
-                                        authManager.loginWithGoogle(account.email, account.name, account.avatarEmoji)
+                                        delay(300)
+                                        val response = com.nagarrakshak.data.BackendClient.googleLogin(account.name, account.email, null)
                                         isLoggingIn = false
-                                        Toast.makeText(context, "Welcome back, ${account.name}!", Toast.LENGTH_SHORT).show()
-                                        onNavigateToHome()
+                                        
+                                        if (response != null && response.success && response.data != null) {
+                                            val u = response.data.user
+                                            authManager.loginWithGoogle(u.email, u.name, account.avatarEmoji, response.data.token)
+                                            Toast.makeText(context, "Welcome back, ${u.name}!", Toast.LENGTH_SHORT).show()
+                                            onNavigateToHome()
+                                        } else {
+                                            Toast.makeText(context, response?.message ?: "Google Sign-In failed", Toast.LENGTH_LONG).show()
+                                        }
                                     }
                                 }
                                 .padding(vertical = 12.dp, horizontal = 8.dp),
@@ -131,7 +138,7 @@ fun AuthScreen(
                                 )
                             }
                         }
-                        Divider(color = Color(0xFFF1F5F9))
+                        HorizontalDivider(color = Color(0xFFF1F5F9))
                     }
                     
                     Spacer(modifier = Modifier.height(12.dp))
@@ -286,12 +293,26 @@ fun AuthScreen(
                             }
                             isLoggingIn = true
                             coroutineScope.launch {
-                                loadingMessage = if (isSignInTab) "Signing in with Email..." else "Registering new account..."
-                                delay(1200)
-                                authManager.loginWithEmail(email, if (isSignInTab) email.substringBefore("@") else name)
+                                loadingMessage = if (isSignInTab) "Connecting to server..." else "Creating account..."
+                                val response = if (isSignInTab) {
+                                    com.nagarrakshak.data.BackendClient.login(email, password)
+                                } else {
+                                    com.nagarrakshak.data.BackendClient.register(name, email, password)
+                                }
+                                
                                 isLoggingIn = false
-                                Toast.makeText(context, "Authenticated successfully!", Toast.LENGTH_SHORT).show()
-                                onNavigateToHome()
+                                if (response != null) {
+                                    if (response.success && response.data != null) {
+                                        val u = response.data.user
+                                        authManager.loginWithEmail(u.email, u.name, response.data.token)
+                                        Toast.makeText(context, response.message ?: "Authenticated successfully!", Toast.LENGTH_SHORT).show()
+                                        onNavigateToHome()
+                                    } else {
+                                        Toast.makeText(context, response.message ?: "Authentication failed", Toast.LENGTH_LONG).show()
+                                    }
+                                } else {
+                                    Toast.makeText(context, "Cannot connect to server. Check backend status.", Toast.LENGTH_LONG).show()
+                                }
                             }
                         },
                         modifier = Modifier

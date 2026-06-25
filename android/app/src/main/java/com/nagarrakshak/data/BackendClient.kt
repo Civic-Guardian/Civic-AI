@@ -18,9 +18,14 @@ import java.net.URL
 object BackendClient {
     private const val TAG = "BackendClient"
     // Use 10.0.2.2 to point to host machine's localhost from Android Emulator
-    private const val BASE_URL = "http://10.107.45.93:8000/api"
+    private const val BASE_URL = "http://10.193.173.93:8000/api"
 
+    private var token: String? = null
 
+    fun setAuthToken(authToken: String?) {
+        token = authToken
+        Log.d(TAG, "Authorization token updated: ${if (authToken != null) "PRESENT" else "NULL"}")
+    }
 
     /**
      * Fetch nearby hazard reports from backend.
@@ -33,6 +38,7 @@ object BackendClient {
             conn.connectTimeout = 3000
             conn.readTimeout = 3000
             conn.setRequestProperty("Accept", "application/json")
+            token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
 
             if (conn.responseCode == HttpURLConnection.HTTP_OK) {
                 val reader = BufferedReader(InputStreamReader(conn.inputStream))
@@ -90,6 +96,7 @@ object BackendClient {
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("Accept", "application/json")
+            token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
 
             val body = JSONObject().apply {
                 put("category", category)
@@ -126,6 +133,7 @@ object BackendClient {
             conn.connectTimeout = 3000
             conn.readTimeout = 3000
             conn.setRequestProperty("Accept", "application/json")
+            token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
 
             if (conn.responseCode == HttpURLConnection.HTTP_OK) {
                 return@withContext true
@@ -147,6 +155,7 @@ object BackendClient {
             conn.connectTimeout = 3000
             conn.readTimeout = 3000
             conn.setRequestProperty("Accept", "application/json")
+            token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
 
             if (conn.responseCode == HttpURLConnection.HTTP_OK) {
                 return@withContext true
@@ -490,6 +499,230 @@ object BackendClient {
         }
         return@withContext "Selected Location (${String.format("%.4f", latLng.latitude)}, ${String.format("%.4f", latLng.longitude)})"
     }
+
+    /**
+     * Register a new user.
+     */
+    suspend fun register(name: String, email: String, password: String): AuthResponse? = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("$BASE_URL/auth/register")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Accept", "application/json")
+
+            val body = JSONObject().apply {
+                put("name", name)
+                put("email", email)
+                put("password", password)
+            }
+
+            val writer = OutputStreamWriter(conn.outputStream)
+            writer.write(body.toString())
+            writer.flush()
+            writer.close()
+
+            val responseCode = conn.responseCode
+            val stream = if (responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_CREATED) {
+                conn.inputStream
+            } else {
+                conn.errorStream
+            }
+
+            if (stream != null) {
+                val reader = BufferedReader(InputStreamReader(stream))
+                val response = StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    response.append(line)
+                }
+                reader.close()
+
+                val jsonResponse = JSONObject(response.toString())
+                val success = jsonResponse.optBoolean("success", false)
+                val message = jsonResponse.optString("message", "").takeIf { it.isNotEmpty() }
+
+                if (success) {
+                    val dataObj = jsonResponse.getJSONObject("data")
+                    val userObj = dataObj.getJSONObject("user")
+                    val authToken = dataObj.getString("token")
+
+                    val authUser = AuthUser(
+                        id = userObj.getInt("id"),
+                        name = userObj.getString("name"),
+                        email = userObj.getString("email"),
+                        role = userObj.getString("role")
+                    )
+                    return@withContext AuthResponse(
+                        success = true,
+                        message = message,
+                        data = AuthData(authUser, authToken)
+                    )
+                } else {
+                    return@withContext AuthResponse(
+                        success = false,
+                        message = message ?: "Registration failed",
+                        data = null
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error registering: ${e.message}", e)
+        }
+        return@withContext null
+    }
+
+    /**
+     * Log in a user with email and password.
+     */
+    suspend fun login(email: String, password: String): AuthResponse? = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("$BASE_URL/auth/login")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Accept", "application/json")
+
+            val body = JSONObject().apply {
+                put("email", email)
+                put("password", password)
+            }
+
+            val writer = OutputStreamWriter(conn.outputStream)
+            writer.write(body.toString())
+            writer.flush()
+            writer.close()
+
+            val responseCode = conn.responseCode
+            val stream = if (responseCode == HttpURLConnection.HTTP_OK) {
+                conn.inputStream
+            } else {
+                conn.errorStream
+            }
+
+            if (stream != null) {
+                val reader = BufferedReader(InputStreamReader(stream))
+                val response = StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    response.append(line)
+                }
+                reader.close()
+
+                val jsonResponse = JSONObject(response.toString())
+                val success = jsonResponse.optBoolean("success", false)
+                val message = jsonResponse.optString("message", "").takeIf { it.isNotEmpty() }
+
+                if (success) {
+                    val dataObj = jsonResponse.getJSONObject("data")
+                    val userObj = dataObj.getJSONObject("user")
+                    val authToken = dataObj.getString("token")
+
+                    val authUser = AuthUser(
+                        id = userObj.getInt("id"),
+                        name = userObj.getString("name"),
+                        email = userObj.getString("email"),
+                        role = userObj.getString("role")
+                    )
+                    return@withContext AuthResponse(
+                        success = true,
+                        message = message,
+                        data = AuthData(authUser, authToken)
+                    )
+                } else {
+                    return@withContext AuthResponse(
+                        success = false,
+                        message = message ?: "Login failed",
+                        data = null
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error logging in: ${e.message}", e)
+        }
+        return@withContext null
+    }
+
+    /**
+     * Log in a user with Google.
+     */
+    suspend fun googleLogin(name: String, email: String, photoUrl: String?): AuthResponse? = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("$BASE_URL/auth/google-login")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.setRequestProperty("Accept", "application/json")
+
+            val body = JSONObject().apply {
+                put("name", name)
+                put("email", email)
+                put("photo_url", photoUrl)
+            }
+
+            val writer = OutputStreamWriter(conn.outputStream)
+            writer.write(body.toString())
+            writer.flush()
+            writer.close()
+
+            val responseCode = conn.responseCode
+            val stream = if (responseCode == HttpURLConnection.HTTP_OK) {
+                conn.inputStream
+            } else {
+                conn.errorStream
+            }
+
+            if (stream != null) {
+                val reader = BufferedReader(InputStreamReader(stream))
+                val response = StringBuilder()
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    response.append(line)
+                }
+                reader.close()
+
+                val jsonResponse = JSONObject(response.toString())
+                val success = jsonResponse.optBoolean("success", false)
+                val message = jsonResponse.optString("message", "").takeIf { it.isNotEmpty() }
+
+                if (success) {
+                    val dataObj = jsonResponse.getJSONObject("data")
+                    val userObj = dataObj.getJSONObject("user")
+                    val authToken = dataObj.getString("token")
+
+                    val authUser = AuthUser(
+                        id = userObj.getInt("id"),
+                        name = userObj.getString("name"),
+                        email = userObj.getString("email"),
+                        role = userObj.getString("role")
+                    )
+                    return@withContext AuthResponse(
+                        success = true,
+                        message = message,
+                        data = AuthData(authUser, authToken)
+                    )
+                } else {
+                    return@withContext AuthResponse(
+                        success = false,
+                        message = message ?: "Google Login failed",
+                        data = null
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error logging in with Google: ${e.message}", e)
+        }
+        return@withContext null
+    }
 }
 
 data class GoogleRouteInfo(
@@ -505,4 +738,22 @@ data class GoogleRouteInfo(
 data class PlaceSuggestion(
     val description: String,
     val placeId: String
+)
+
+data class AuthResponse(
+    val success: Boolean,
+    val message: String?,
+    val data: AuthData?
+)
+
+data class AuthData(
+    val user: AuthUser,
+    val token: String
+)
+
+data class AuthUser(
+    val id: Int,
+    val name: String,
+    val email: String,
+    val role: String
 )

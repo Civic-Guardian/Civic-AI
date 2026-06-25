@@ -123,7 +123,7 @@ class ExampleTest extends TestCase
 
     public function test_ai_center_page_renders_successfully_when_authenticated(): void
     {
-        $response = $this->actingAs($this->adminUser)->get('/admin/ai');
+        $response = $this->actingAs($this->adminUser)->get('/admin/ai/dashboard');
         $response->assertStatus(200);
     }
 

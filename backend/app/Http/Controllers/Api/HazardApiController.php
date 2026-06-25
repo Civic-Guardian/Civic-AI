@@ -60,7 +60,7 @@ class HazardApiController extends Controller
                 'status' => 'Pending',
                 'description' => $validatedData['description'],
                 'verification_count' => 0,
-                'ai_analysis_summary' => $validatedData['ai_analysis_summary'],
+                'ai_analysis_summary' => $validatedData['ai_analysis_summary'] ?? null,
                 'image_path' => $validatedData['image_path'] ?? null
             ]);
 
