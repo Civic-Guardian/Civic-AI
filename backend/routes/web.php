@@ -78,11 +78,52 @@ Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
     Route::delete('settings/categories/{id}/delete', [SettingsController::class, 'destroyCategory'])->name('settings.categories.destroy');
 });
 
-// API Routes for Android Client
-Route::prefix('api')->group(function () {
+// API Routes for Android Client (v1)
+Route::prefix('api/v1')->group(function () {
+    // Hazards Core
     Route::get('hazards', [\App\Http\Controllers\Api\HazardApiController::class, 'getHazards']);
     Route::post('hazards', [\App\Http\Controllers\Api\HazardApiController::class, 'storeHazard']);
+    Route::get('hazards/{id}', [\App\Http\Controllers\Api\HazardApiController::class, 'showHazard']);
+    Route::put('hazards/{id}', [\App\Http\Controllers\Api\HazardApiController::class, 'updateHazard']);
+    Route::delete('hazards/{id}', [\App\Http\Controllers\Api\HazardApiController::class, 'deleteHazard']);
     Route::post('hazards/{id}/verify', [\App\Http\Controllers\Api\HazardApiController::class, 'verifyHazard']);
     Route::post('hazards/{id}/resolve', [\App\Http\Controllers\Api\HazardApiController::class, 'resolveHazard']);
+
+    // AI Processing
+    Route::post('ai/analyze', [\App\Http\Controllers\Api\AiApiController::class, 'analyze']);
+    Route::post('ai/regenerate-description', [\App\Http\Controllers\Api\AiApiController::class, 'regenerateDescription']);
+
+    // Comments
+    Route::get('hazards/{id}/comments', [\App\Http\Controllers\Api\CommentApiController::class, 'index']);
+    Route::post('hazards/{id}/comments', [\App\Http\Controllers\Api\CommentApiController::class, 'store']);
+    Route::delete('comments/{id}', [\App\Http\Controllers\Api\CommentApiController::class, 'destroy']);
+
+    // Bookmarks & Likes
+    Route::post('hazards/{id}/bookmark', [\App\Http\Controllers\Api\BookmarkApiController::class, 'store']);
+    Route::delete('hazards/{id}/bookmark', [\App\Http\Controllers\Api\BookmarkApiController::class, 'destroy']);
+    Route::post('hazards/{id}/like', [\App\Http\Controllers\Api\LikeApiController::class, 'store']);
+    Route::delete('hazards/{id}/like', [\App\Http\Controllers\Api\LikeApiController::class, 'destroy']);
+
+    // Maps & Navigation
+    Route::get('maps/hazards', [\App\Http\Controllers\Api\MapApiController::class, 'hazards']);
+    Route::get('maps/nearby', [\App\Http\Controllers\Api\MapApiController::class, 'nearby']);
+    Route::post('maps/safe-route', [\App\Http\Controllers\Api\MapApiController::class, 'safeRoute']);
+    Route::get('maps/live-alerts', [\App\Http\Controllers\Api\MapApiController::class, 'liveAlerts']);
+
+    // Safe Ride
+    Route::post('ride/start', [\App\Http\Controllers\Api\RideApiController::class, 'start']);
+    Route::post('ride/end', [\App\Http\Controllers\Api\RideApiController::class, 'end']);
+    Route::post('ride/share-location', [\App\Http\Controllers\Api\RideApiController::class, 'shareLocation']);
+
+    // Notifications
+    Route::get('notifications', [\App\Http\Controllers\Api\NotificationApiController::class, 'index']);
+    Route::put('notifications/{id}/read', [\App\Http\Controllers\Api\NotificationApiController::class, 'markAsRead']);
+    Route::delete('notifications/{id}', [\App\Http\Controllers\Api\NotificationApiController::class, 'destroy']);
+
+    // Profile & Settings
+    Route::get('profile/stats', [\App\Http\Controllers\Api\ProfileApiController::class, 'stats']);
+    Route::put('profile', [\App\Http\Controllers\Api\ProfileApiController::class, 'update']);
+    Route::get('settings', [\App\Http\Controllers\Api\SettingsApiController::class, 'index']);
+    Route::put('settings', [\App\Http\Controllers\Api\SettingsApiController::class, 'update']);
 });
 
