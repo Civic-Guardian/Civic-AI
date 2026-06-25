@@ -201,7 +201,14 @@ object BackendClient {
             reportTime = "Recent", // Simple relative time string
             description = obj.optString("description", ""),
             aiAnalysisSummary = if (obj.isNull("ai_analysis_summary")) null else obj.getString("ai_analysis_summary"),
-            imageUrl = if (obj.isNull("image_path")) null else obj.getString("image_path")
+            imageUrl = if (obj.isNull("image_path")) null else {
+                val path = obj.getString("image_path")
+                when {
+                    path.startsWith("http://") || path.startsWith("https://") -> path
+                    path.startsWith("/") -> "http://10.107.45.93:8000$path"
+                    else -> "http://10.107.45.93:8000/storage/$path"
+                }
+            }
         )
     }
 }

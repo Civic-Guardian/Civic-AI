@@ -25,6 +25,8 @@ import com.nagarrakshak.data.models.HazardReport
 import com.nagarrakshak.data.models.Severity
 import com.nagarrakshak.data.models.VerificationStatus
 import kotlinx.coroutines.launch
+import androidx.compose.ui.draw.clip
+
 import androidx.compose.animation.core.*
 import androidx.compose.ui.draw.alpha
 
@@ -110,15 +112,28 @@ fun DetailScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Full Hazard Image Simulation
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp)
-                    .background(Color.LightGray, shape = RoundedCornerShape(16.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("📷 Hazard Photo", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            // Dynamic Hazard Image loaded using Coil's AsyncImage
+            val imageUrl = report.imageUrl
+            if (!imageUrl.isNullOrBlank()) {
+                coil.compose.AsyncImage(
+                    model = imageUrl,
+                    contentDescription = "Hazard Photo",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(16.dp)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .background(Color.LightGray, shape = RoundedCornerShape(16.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("📷 No Photo Attached", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                }
             }
 
             // Hazard title & status row
