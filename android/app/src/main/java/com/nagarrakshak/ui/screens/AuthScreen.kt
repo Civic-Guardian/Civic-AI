@@ -94,7 +94,18 @@ fun AuthScreen(
                             isLoggingIn = false
                             val err = authTask.exception?.message ?: "Firebase Auth failed"
                             Log.e("AuthScreen", "Firebase Auth error: $err", authTask.exception)
-                            Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                            
+                            val isCertError = err.contains("CertPathValidatorException", ignoreCase = true) || 
+                                             err.contains("Trust anchor", ignoreCase = true)
+                            
+                            if (isCertError) {
+                                val certExplain = "SSL Certificate Trust Error: Your network/VPN or emulator is intercepting SSL traffic. Please disable VPN/proxies or switch networks."
+                                Toast.makeText(context, certExplain, Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Falling back to simulated login for development...", Toast.LENGTH_SHORT).show()
+                                showGoogleChooser = true
+                            } else {
+                                Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                            }
                         }
                     }
             } else {
