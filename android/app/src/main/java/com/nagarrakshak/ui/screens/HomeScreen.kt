@@ -29,6 +29,9 @@ import androidx.compose.ui.unit.sp
 import com.nagarrakshak.ui.theme.DangerColor
 import com.nagarrakshak.ui.theme.PrimaryColor
 import com.nagarrakshak.ui.theme.WarningColor
+import com.nagarrakshak.data.BackendClient
+import com.nagarrakshak.data.models.HazardReport
+import com.nagarrakshak.data.models.Severity
 
 import android.Manifest
 import android.content.Context
@@ -67,6 +70,11 @@ fun HomeScreen(
     var currentCityName by remember { mutableStateOf("Chandigarh") }
     var userLatLng by remember { mutableStateOf<LatLng?>(null) }
     var showScoreDialog by remember { mutableStateOf(false) }
+    var alertsList by remember { mutableStateOf<List<HazardReport>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        alertsList = BackendClient.fetchNearbyHazards()
+    }
 
     val locationPermissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -338,6 +346,7 @@ fun HomeScreen(
                 
                 MapPreviewWidget(
                     userLatLng = userLatLng,
+                    alertsList = alertsList,
                     onOpenFullMap = onNavigateToMap
                 )
             }
@@ -382,59 +391,44 @@ fun HomeScreen(
         // 6. Nearby Alerts List (4 Vertical cards matching mockup)
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                NearbyAlertVerticalCard(
-                    title = "Open Drain",
-                    location = "Talwandi, Kota",
-                    description = "Open drain causing foul smell and mosquito issue.",
-                    distance = "120m away",
-                    severity = "High",
-                    severityColor = Color(0xFFEF4444),
-                    severityBg = Color(0xFFFEE2E2),
-                    timeAgo = "2h ago",
-                    imageIllustration = { OpenDrainIllustration() },
-                    onClick = { onNavigateToDetail("1") }
-                )
-
-                NearbyAlertVerticalCard(
-                    title = "Garbage Dump",
-                    location = "Mahaveer Nagar, Kota",
-                    description = "Garbage not collected from 3 days.",
-                    distance = "350m away",
-                    severity = "Medium",
-                    severityColor = Color(0xFFD97706),
-                    severityBg = Color(0xFFFEF3C7),
-                    timeAgo = "5h ago",
-                    imageIllustration = { GarbageDumpIllustration() },
-                    onClick = { onNavigateToDetail("2") }
-                )
-
-                NearbyAlertVerticalCard(
-                    title = "Water Logging",
-                    location = "Shrinath Puram, Kota",
-                    description = "Heavy water logging after rain.",
-                    distance = "450m away",
-                    severity = "High",
-                    severityColor = Color(0xFFEF4444),
-                    severityBg = Color(0xFFFEE2E2),
-                    timeAgo = "6h ago",
-                    imageIllustration = { WaterLoggingIllustration() },
-                    onClick = { onNavigateToDetail("3") }
-                )
-
-                NearbyAlertVerticalCard(
-                    title = "Broken Street Light",
-                    location = "Vivekananda Nagar, Kota",
-                    description = "Street light not working since one week.",
-                    distance = "620m away",
-                    severity = "Medium",
-                    severityColor = Color(0xFFD97706),
-                    severityBg = Color(0xFFFEF3C7),
-                    timeAgo = "1d ago",
-                    imageIllustration = { BrokenStreetLightIllustration() },
-                    onClick = { onNavigateToDetail("4") }
-                )
+                alertsList.forEach { alert ->
+                    val severityColor = when (alert.severity) {
+                        Severity.HIGH -> Color(0xFFEF4444)
+                        Severity.MEDIUM -> Color(0xFFD97706)
+                        Severity.LOW -> Color(0xFF10B981)
+                    }
+                    val severityBg = when (alert.severity) {
+                        Severity.HIGH -> Color(0xFFFEE2E2)
+                        Severity.MEDIUM -> Color(0xFFFEF3C7)
+                        Severity.LOW -> Color(0xFFD1FAE5)
+                    }
+                    val illustration: @Composable () -> Unit = when {
+                        alert.category.contains("drain", ignoreCase = true) -> { { OpenDrainIllustration() } }
+                        alert.category.contains("garbage", ignoreCase = true) || alert.category.contains("dump", ignoreCase = true) -> { { GarbageDumpIllustration() } }
+                        alert.category.contains("water", ignoreCase = true) -> { { WaterLoggingIllustration() } }
+                        alert.category.contains("light", ignoreCase = true) -> { { BrokenStreetLightIllustration() } }
+                        else -> { { PotholeIllustration() } }
+                    }
+                    NearbyAlertVerticalCard(
+                        title = alert.title,
+                        location = alert.locationName,
+                        description = alert.description,
+                        distance = "Nearby",
+                        severity = when (alert.severity) {
+                            Severity.HIGH -> "High"
+                            Severity.MEDIUM -> "Medium"
+                            Severity.LOW -> "Low"
+                        },
+                        severityColor = severityColor,
+                        severityBg = severityBg,
+                        timeAgo = alert.reportTime,
+                        imageIllustration = illustration,
+                        onClick = { onNavigateToDetail(alert.id) }
+                    )
+                }
             }
         }
+
     }
 }
 
@@ -514,6 +508,7 @@ fun QuickActionCard(
 @Composable
 fun MapPreviewWidget(
     userLatLng: LatLng?,
+    alertsList: List<HazardReport>,
     onOpenFullMap: () -> Unit
 ) {
     Card(
@@ -545,17 +540,15 @@ fun MapPreviewWidget(
                     myLocationButtonEnabled = false
                 )
             ) {
-                val offset1 = LatLng(center.latitude + 0.002, center.longitude + 0.001)
-                val offset2 = LatLng(center.latitude - 0.001, center.longitude - 0.002)
-                Marker(
-                    state = MarkerState(position = offset1),
-                    title = "Open Drain"
-                )
-                Marker(
-                    state = MarkerState(position = offset2),
-                    title = "Garbage Dump"
-                )
+                alertsList.forEach { alert ->
+                    Marker(
+                        state = MarkerState(position = LatLng(alert.latitude, alert.longitude)),
+                        title = alert.title,
+                        snippet = alert.locationName
+                    )
+                }
             }
+
 
             // Centered dark-green button OPEN FULL MAP
             Button(
@@ -856,4 +849,16 @@ fun fetchCurrentLocationLatLng(context: Context, onLocationDetected: (LatLng) ->
         onLocationDetected(LatLng(25.18254, 75.82736))
     }
 }
+
+@Composable
+fun PotholeIllustration() {
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        drawRect(Color(0xFF64748B)) // Grey road
+        drawOval(Color(0xFF334155), topLeft = Offset(size.width * 0.25f, size.height * 0.35f), size = size * 0.5f)
+        val stroke = 1.5.dp.toPx()
+        drawLine(Color(0xFF1E293B), Offset(size.width * 0.25f, size.height * 0.5f), Offset(size.width * 0.1f, size.height * 0.55f), strokeWidth = stroke)
+        drawLine(Color(0xFF1E293B), Offset(size.width * 0.75f, size.height * 0.5f), Offset(size.width * 0.9f, size.height * 0.45f), strokeWidth = stroke)
+    }
+}
+
 

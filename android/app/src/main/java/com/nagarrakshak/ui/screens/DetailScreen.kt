@@ -1,5 +1,6 @@
 package com.nagarrakshak.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,12 +13,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.nagarrakshak.ui.theme.DangerColor
 import com.nagarrakshak.ui.theme.PrimaryColor
 import com.nagarrakshak.ui.theme.WarningColor
+import com.nagarrakshak.data.BackendClient
+import com.nagarrakshak.data.models.HazardReport
+import com.nagarrakshak.data.models.Severity
+import com.nagarrakshak.data.models.VerificationStatus
+import kotlinx.coroutines.launch
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -26,61 +33,57 @@ fun DetailScreen(
     hazardId: String,
     onBackClicked: () -> Unit
 ) {
-    var verificationCount by remember { mutableStateOf(14) }
+    val context = LocalContext.current
+    var hazardReport by remember { mutableStateOf<HazardReport?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
     var hasVerified by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
 
-    // Mock data based on hazardId
-    val title = when (hazardId) {
-        "1" -> "Open Drain"
-        "2" -> "Garbage Dump"
-        "3" -> "Water Logging"
-        "4" -> "Broken Street Light"
-        else -> "Open Drain"
-    }
-    val category = when (hazardId) {
-        "1" -> "Open Drain"
-        "2" -> "Garbage"
-        "3" -> "Waterlogging"
-        "4" -> "Broken Streetlight"
-        else -> "Open Drain"
-    }
-    val location = when (hazardId) {
-        "1" -> "Talwandi, Kota"
-        "2" -> "Mahaveer Nagar, Kota"
-        "3" -> "Shrinath Puram, Kota"
-        "4" -> "Vivekananda Nagar, Kota"
-        else -> "Talwandi, Kota"
-    }
-    val severity = when (hazardId) {
-        "1", "3" -> "High Risk"
-        else -> "Medium Risk"
-    }
-    val severityColor = when (hazardId) {
-        "1", "3" -> DangerColor
-        else -> WarningColor
-    }
-    val detailedDescription = when (hazardId) {
-        "1" -> "Uncovered open drain canal causing foul smell, water contamination, and mosquito breeding. Poses high risk to pedestrians and children."
-        "2" -> "Accumulated garbage dump pile blocking part of the street side. Not collected for 3 days, causing bad odor and hygienic concerns."
-        "3" -> "Severe waterlogging on road street after heavy rain, making it difficult for vehicles and two-wheelers to navigate safely."
-        "4" -> "Road streetlight is broken or completely inactive for over a week, leading to dark blindspots and increasing safety risks at night."
-        else -> "Civic hazard reported by citizen. Active monitoring recommended."
+    LaunchedEffect(hazardId) {
+        isLoading = true
+        hazardReport = BackendClient.fetchHazardDetail(hazardId)
+        hasVerified = hazardReport?.verificationStatus == VerificationStatus.VERIFIED
+        isLoading = false
     }
 
-    val hazardLat = when (hazardId) {
-        "1" -> 25.18254
-        "2" -> 25.18421
-        "3" -> 25.18112
-        "4" -> 25.18556
-        else -> 25.18254
+    if (isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = PrimaryColor)
+        }
+        return
     }
-    val hazardLng = when (hazardId) {
-        "1" -> 75.82736
-        "2" -> 75.82912
-        "3" -> 75.82512
-        "4" -> 75.82667
-        else -> 75.82736
+
+    val report = hazardReport
+    if (report == null) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("Hazard report not found.", style = MaterialTheme.typography.titleMedium)
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(onClick = onBackClicked, colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor)) {
+                    Text("Go Back")
+                }
+            }
+        }
+        return
     }
+
+    val title = report.title
+    val category = report.category
+    val location = report.locationName
+    val severity = when (report.severity) {
+        Severity.HIGH -> "High Risk"
+        Severity.MEDIUM -> "Medium Risk"
+        Severity.LOW -> "Low Risk"
+    }
+    val severityColor = when (report.severity) {
+        Severity.HIGH -> DangerColor
+        Severity.MEDIUM -> WarningColor
+        Severity.LOW -> Color(0xFF10B981)
+    }
+    val detailedDescription = report.description
+    val hazardLat = report.latitude
+    val hazardLng = report.longitude
+    val aiAnalysisSummary = report.aiAnalysisSummary ?: "The uploaded photo shows a public safety issue. Recommended categorization: $category. Risk factors involve local safety hazards and pedestrian crash probability."
 
     Column(
         modifier = Modifier
@@ -113,7 +116,7 @@ fun DetailScreen(
                     .background(Color.LightGray, shape = RoundedCornerShape(16.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text("📷 Hazard Photo Placeholder", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text("📷 Hazard Photo", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
             }
 
             // Hazard title & status row
@@ -162,7 +165,7 @@ fun DetailScreen(
                 ) {
                     Column {
                         Text(
-                            text = "$verificationCount Verifications",
+                            text = "${report.verificationCount} Verifications",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = PrimaryColor
@@ -177,8 +180,19 @@ fun DetailScreen(
                     Button(
                         onClick = {
                             if (!hasVerified) {
-                                verificationCount++
-                                hasVerified = true
+                                coroutineScope.launch {
+                                    val success = BackendClient.verifyHazard(hazardId)
+                                    if (success) {
+                                        hazardReport = report.copy(
+                                            verificationCount = report.verificationCount + 1,
+                                            verificationStatus = VerificationStatus.VERIFIED
+                                        )
+                                        hasVerified = true
+                                        Toast.makeText(context, "Report verified successfully!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Failed to verify. Server error.", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             }
                         },
                         colors = ButtonDefaults.buttonColors(
@@ -222,7 +236,7 @@ fun DetailScreen(
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "The uploaded photo shows a major asphalt degradation with deep subsurface exposure. Recommended categorization: $category. Risk factors involve lack of active night street lighting, increasing cyclist crash probability.",
+                        text = aiAnalysisSummary,
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
@@ -283,7 +297,17 @@ fun DetailScreen(
             }
 
             Button(
-                onClick = {},
+                onClick = {
+                    coroutineScope.launch {
+                        val success = BackendClient.resolveHazard(hazardId)
+                        if (success) {
+                            Toast.makeText(context, "Hazard marked as resolved!", Toast.LENGTH_SHORT).show()
+                            onBackClicked()
+                        } else {
+                            Toast.makeText(context, "Failed to mark resolved. Server error.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryColor),
                 shape = RoundedCornerShape(16.dp)
@@ -292,4 +316,5 @@ fun DetailScreen(
             }
         }
     }
+
 }

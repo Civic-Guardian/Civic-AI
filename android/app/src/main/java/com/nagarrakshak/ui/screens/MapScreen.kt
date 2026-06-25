@@ -106,13 +106,25 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
         }
     }
 
-    val hazardMarkers = remember {
-        listOf(
-            HazardMarker("1", "Pothole on Road", 25.18254, 75.82736, "High Risk", "Talwandi, Kota"),
-            HazardMarker("2", "Open Drain", 25.18421, 75.82912, "High Risk", "Sector 7, Kota"),
-            HazardMarker("3", "Waterlogging", 25.19532, 75.83541, "Medium Risk", "Aerodrome Circle, Kota"),
-            HazardMarker("4", "Broken Streetlight", 25.21312, 75.84211, "Low Risk", "Kunadi, Kota")
-        )
+    var hazardMarkers by remember { mutableStateOf<List<HazardMarker>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        val list = com.nagarrakshak.data.BackendClient.fetchNearbyHazards()
+        hazardMarkers = list.map { report ->
+            val severityStr = when (report.severity) {
+                com.nagarrakshak.data.models.Severity.HIGH -> "High Risk"
+                com.nagarrakshak.data.models.Severity.MEDIUM -> "Medium Risk"
+                com.nagarrakshak.data.models.Severity.LOW -> "Low Risk"
+            }
+            HazardMarker(
+                id = report.id,
+                title = report.title,
+                latitude = report.latitude,
+                longitude = report.longitude,
+                severity = severityStr,
+                snippet = report.locationName
+            )
+        }
     }
 
     Column(

@@ -77,3 +77,12 @@ Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
     Route::post('settings/categories/{id}', [SettingsController::class, 'updateCategory'])->name('settings.categories.update');
     Route::delete('settings/categories/{id}/delete', [SettingsController::class, 'destroyCategory'])->name('settings.categories.destroy');
 });
+
+// API Routes for Android Client
+Route::prefix('api')->group(function () {
+    Route::get('hazards', [\App\Http\Controllers\Api\HazardApiController::class, 'getHazards']);
+    Route::post('hazards', [\App\Http\Controllers\Api\HazardApiController::class, 'storeHazard']);
+    Route::post('hazards/{id}/verify', [\App\Http\Controllers\Api\HazardApiController::class, 'verifyHazard']);
+    Route::post('hazards/{id}/resolve', [\App\Http\Controllers\Api\HazardApiController::class, 'resolveHazard']);
+});
+
