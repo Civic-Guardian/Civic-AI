@@ -1,10 +1,11 @@
 package com.nagarrakshak
-
+ 
 import android.app.Application
-
+import com.nagarrakshak.data.BackendClient
+ 
 class NagarRakshakApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        // Initialize logging, dependency injection, etc.
+        BackendClient.init(this)
     }
 }

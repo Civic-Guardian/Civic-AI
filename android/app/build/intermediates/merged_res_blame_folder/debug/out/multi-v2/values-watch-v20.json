@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.nagarrakshak.app-mergeDebugResources-61:/values-watch-v20/values-watch-v20.xml",
+            "outputFile": "com.nagarrakshak.app-mergeDebugResources-62:/values-watch-v20/values-watch-v20.xml",
             "map": [
                 {
                     "source": "C:\\Users\\jkson\\.gradle\\caches\\transforms-3\\f148492b2200b2b14db058fecf1efcc3\\transformed\\play-services-auth-21.2.0\\res\\values-watch-v20\\values.xml",

@@ -13,7 +13,7 @@ return new class extends Migration
     {
         Schema::create('ai_analyses', function (Blueprint $table) {
             $table->id();
-            $table->unsignedBigInteger('hazard_id');
+            $table->unsignedBigInteger('hazard_id')->nullable();
             $table->text('generated_summary')->nullable();
             $table->text('severity_reasoning')->nullable();
             $table->boolean('is_duplicate')->default(false);

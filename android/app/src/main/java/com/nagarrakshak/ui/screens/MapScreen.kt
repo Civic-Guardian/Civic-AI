@@ -14,6 +14,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,6 +47,9 @@ import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.MapProperties
 import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.MapType
+import com.google.maps.android.compose.MarkerComposable
+import com.google.maps.android.compose.rememberMarkerState
+import com.google.maps.android.compose.Circle
 import android.Manifest
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -130,6 +137,12 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
     var isTrafficEnabled by remember { mutableStateOf(false) }
     var isSatelliteEnabled by remember { mutableStateOf(false) }
     var isNavigationMode by remember { mutableStateOf(false) }
+    var isRouteActive by remember { mutableStateOf(false) }
+    var isAlertsEnabled by remember { mutableStateOf(true) }
+    var isVoiceAlertsEnabled by remember { mutableStateOf(true) }
+    var isVibrationEnabled by remember { mutableStateOf(true) }
+    var isRouteAvoidEnabled by remember { mutableStateOf(true) }
+    var tripSeconds by remember { mutableStateOf(0) }
     var selectedHazardForSheet by remember { mutableStateOf<HazardReport?>(null) }
     
     // Origin & Destination selection state
@@ -168,7 +181,9 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
         val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
         val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
         if (fineGranted || coarseGranted) {
-            userLatLng = LatLng(25.182, 75.828)
+            fetchCurrentLocationLatLng(context) { latLng ->
+                userLatLng = latLng
+            }
         }
     }
 
@@ -176,7 +191,9 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
         val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
         val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
         if (hasFine || hasCoarse) {
-            userLatLng = LatLng(25.182, 75.828)
+            fetchCurrentLocationLatLng(context) { latLng ->
+                userLatLng = latLng
+            }
         } else {
             locationPermissionsLauncher.launch(
                 arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
@@ -282,60 +299,66 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
     }
 
     // Fetch Google Routes dynamically on Origin/Destination change
-    LaunchedEffect(originLatLng, destinationLatLng, resolvedHazards) {
-        isFetchingRoutes = true
-        val apiRoutes = BackendClient.fetchGoogleRoutes(originLatLng, destinationLatLng, resolvedHazards)
-        if (apiRoutes.isNotEmpty()) {
-            routesList = apiRoutes
-            selectedRouteIndex = 0
+    LaunchedEffect(isRouteActive, originLatLng, destinationLatLng, resolvedHazards) {
+        if (isRouteActive) {
+            isFetchingRoutes = true
+            val apiRoutes = BackendClient.fetchGoogleRoutes(originLatLng, destinationLatLng, resolvedHazards)
+            if (apiRoutes.isNotEmpty()) {
+                routesList = apiRoutes
+                selectedRouteIndex = 0
+            } else {
+                // Draw real road-following route fallbacks between Talwandi and Indraprastha Ind. Area
+                val path1 = listOf(
+                    LatLng(25.182, 75.828), // Origin
+                    LatLng(25.181, 75.832),
+                    LatLng(25.176, 75.830), // Waterlogging
+                    LatLng(25.174, 75.835), // Broken Streetlight
+                    LatLng(25.172, 75.842), // Garbage Dump
+                    LatLng(25.170, 75.848),
+                    LatLng(25.166, 75.858)  // Destination
+                )
+                
+                val path2 = listOf(
+                    LatLng(25.182, 75.828), // Origin
+                    LatLng(25.188, 75.825),
+                    LatLng(25.192, 75.835),
+                    LatLng(25.184, 75.850),
+                    LatLng(25.174, 75.854),
+                    LatLng(25.166, 75.858)  // Destination
+                )
+
+                val risk1 = BackendClient.calculateRouteRiskScore(path1, resolvedHazards)
+                val risk2 = BackendClient.calculateRouteRiskScore(path2, resolvedHazards)
+
+                val route1 = GoogleRouteInfo(
+                    points = path1,
+                    durationText = "28 min",
+                    durationSeconds = 1680,
+                    distanceText = "12.4 km",
+                    distanceMeters = 12400,
+                    riskScore = risk1
+                )
+                val route2 = GoogleRouteInfo(
+                    points = path2,
+                    durationText = "32 min",
+                    durationSeconds = 1920,
+                    distanceText = "14.2 km",
+                    distanceMeters = 14200,
+                    riskScore = risk2
+                )
+
+                // Put routes in list and sort by Safest Priority
+                routesList = listOf(route1, route2)
+                
+                // Auto select safest route
+                selectedRouteIndex = if (risk2 <= risk1) 1 else 0
+            }
+            isFetchingRoutes = false
         } else {
-            // Draw real road-following route fallbacks between Talwandi and Indraprastha Ind. Area
-            val path1 = listOf(
-                LatLng(25.182, 75.828), // Origin
-                LatLng(25.181, 75.832),
-                LatLng(25.176, 75.830), // Waterlogging
-                LatLng(25.174, 75.835), // Broken Streetlight
-                LatLng(25.172, 75.842), // Garbage Dump
-                LatLng(25.170, 75.848),
-                LatLng(25.166, 75.858)  // Destination
-            )
-            
-            val path2 = listOf(
-                LatLng(25.182, 75.828), // Origin
-                LatLng(25.188, 75.825),
-                LatLng(25.192, 75.835),
-                LatLng(25.184, 75.850),
-                LatLng(25.174, 75.854),
-                LatLng(25.166, 75.858)  // Destination
-            )
-
-            val risk1 = BackendClient.calculateRouteRiskScore(path1, resolvedHazards)
-            val risk2 = BackendClient.calculateRouteRiskScore(path2, resolvedHazards)
-
-            val route1 = GoogleRouteInfo(
-                points = path1,
-                durationText = "28 min",
-                durationSeconds = 1680,
-                distanceText = "12.4 km",
-                distanceMeters = 12400,
-                riskScore = risk1
-            )
-            val route2 = GoogleRouteInfo(
-                points = path2,
-                durationText = "32 min",
-                durationSeconds = 1920,
-                distanceText = "14.2 km",
-                distanceMeters = 14200,
-                riskScore = risk2
-            )
-
-            // Put routes in list and sort by Safest Priority
-            routesList = listOf(route1, route2)
-            
-            // Auto select safest route
-            selectedRouteIndex = if (risk2 <= risk1) 1 else 0
+            routesList = emptyList()
+            selectedRouteIndex = 0
+            isFetchingRoutes = false
         }
-        isFetchingRoutes = false
     }
 
     val activeRoute = remember(routesList, selectedRouteIndex) {
@@ -346,18 +369,27 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
         activeRoute?.points ?: emptyList()
     }
 
-    // Centering Map on Active Route bounds
-    val centerLatLng = remember(routePoints) {
+    // Centering Map on Active Route bounds or user location
+    val centerLatLng = remember(routePoints, userLatLng) {
         if (routePoints.isNotEmpty()) {
             val mid = routePoints[routePoints.size / 2]
             LatLng(mid.latitude, mid.longitude)
         } else {
-            LatLng(25.18, 75.83)
+            userLatLng ?: LatLng(25.18, 75.83)
         }
     }
 
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(centerLatLng, 14f)
+    }
+
+    // Move camera to user's real GPS location once detected
+    LaunchedEffect(userLatLng) {
+        if (userLatLng != null && !isRouteActive) {
+            cameraPositionState.animate(
+                com.google.android.gms.maps.CameraUpdateFactory.newLatLngZoom(userLatLng!!, 14.5f)
+            )
+        }
     }
 
     // Ride Navigation Mode Simulation variables
@@ -384,6 +416,16 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
     }
 
     // Run active simulation when Ride Mode is triggered
+    LaunchedEffect(isNavigationMode) {
+        if (isNavigationMode) {
+            tripSeconds = 0
+            while (isNavigationMode) {
+                delay(1000)
+                tripSeconds++
+            }
+        }
+    }
+
     LaunchedEffect(isNavigationMode, routePoints) {
         if (isNavigationMode && routePoints.isNotEmpty()) {
             currentSimulationIndex = 0
@@ -397,7 +439,7 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
                 // Move map camera smoothly along the ride path
                 cameraPositionState.position = CameraPosition.fromLatLngZoom(currentPoint, 15.5f)
 
-                // Scan for any hazard within 100m radius
+                // Scan for any hazard dynamically within threshold (e.g. 500m alert radius from dashboard settings)
                 var closestHazard: HazardReport? = null
                 var minDist = Double.MAX_VALUE
                 
@@ -406,7 +448,10 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
                         hazard.latitude, hazard.longitude,
                         currentPoint.latitude, currentPoint.longitude
                     )
-                    if (dist <= 100.0) {
+                    
+                    // If alerts are enabled, check distance within 500m. If disabled, threshold is 0.
+                    val threshold = if (isAlertsEnabled) 500.0 else 0.0
+                    if (dist <= threshold) {
                         if (dist < minDist) {
                             minDist = dist
                             closestHazard = hazard
@@ -417,13 +462,26 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
                 approachingHazard = closestHazard
                 approachingHazardDistance = if (closestHazard != null) minDist else 0.0
 
-                // Speak voice alert if hazard detected and not muted
-                if (closestHazard != null && !isVoiceMuted) {
+                // Speak voice alert if hazard detected within 200m, and voice alerts are ON (isVoiceAlertsEnabled)
+                if (closestHazard != null && minDist <= 200.0 && isVoiceAlertsEnabled) {
                     val id = closestHazard.id
                     if (!spokenHazardIds.contains(id)) {
                         spokenHazardIds.add(id)
                         val speechText = "Warning: ${closestHazard.title} ahead. Slow down immediately."
                         tts.value?.speak(speechText, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, null)
+                    }
+                }
+
+                // Trigger device double-beep vibration alert if enabled when hazard within 200m
+                if (closestHazard != null && minDist <= 200.0 && isVibrationEnabled) {
+                    val vibrator = context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                    if (vibrator != null && vibrator.hasVibrator()) {
+                        val pattern = longArrayOf(0, 100, 100, 100)
+                        if (android.os.Build.VERSION.SDK_INT >= 26) {
+                            vibrator.vibrate(android.os.VibrationEffect.createWaveform(pattern, -1))
+                        } else {
+                            vibrator.vibrate(pattern, -1)
+                        }
                     }
                 }
 
@@ -465,32 +523,33 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
             onConfirm = { latLng, address ->
                 destinationLatLng = latLng
                 destinationName = address
+                // Set origin to user's current location automatically
+                if (userLatLng != null) {
+                    originLatLng = userLatLng!!
+                    originName = "My Location"
+                }
+                isRouteActive = true
                 showDestinationDialog = false
             },
             onDismiss = { showDestinationDialog = false }
         )
     }
 
-    // Modal Bottom Sheet for tapped hazard
-    if (selectedHazardForSheet != null) {
-        ModalBottomSheet(
-            onDismissRequest = { selectedHazardForSheet = null },
-            shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-            containerColor = Color.White
-        ) {
-            HazardBottomSheetContent(
-                hazard = selectedHazardForSheet!!,
-                onNavigate = {
-                    selectedHazardForSheet = null
-                    isNavigationMode = true
-                },
-                onViewDetails = {
-                    selectedHazardForSheet = null
-                    onNavigateToDetail(selectedHazardForSheet!!.id)
-                }
-            )
+
+
+    val totalCount = filteredHazards.size
+    val viewportHazardsCount = remember(cameraPositionState.isMoving, filteredHazards) {
+        val projection = cameraPositionState.projection
+        val region = projection?.visibleRegion
+        if (region != null) {
+            filteredHazards.count { region.latLngBounds.contains(LatLng(it.latitude, it.longitude)) }
+        } else {
+            filteredHazards.size
         }
     }
+    val highCount = filteredHazards.count { it.severity == Severity.HIGH }
+    val mediumCount = filteredHazards.count { it.severity == Severity.MEDIUM }
+    val lowCount = filteredHazards.count { it.severity == Severity.LOW }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // 1. Live Google Map Component
@@ -513,42 +572,136 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
                 Polyline(
                     points = route.points,
                     color = if (isSelected) Color(0xFF3B82F6) else Color(0xFFCBD5E1),
-                    width = if (isSelected) 10f else 6f,
+                    width = if (isSelected) 8f else 4f,
                     zIndex = if (isSelected) 1f else 0f
                 )
             }
 
-            // Render active simulation indicator on route if in ride mode
+            // 2 km safety radius area visual circle
+            Circle(
+                center = userLatLng ?: centerLatLng,
+                radius = 2000.0, // 2 km
+                fillColor = Color(0x131B4FD8), // ~7% opacity Civic Blue
+                strokeColor = Color(0x331B4FD8), // 20% opacity Civic Blue
+                strokeWidth = 2.5f
+            )
+
+            // Render active simulation indicator on route if in ride mode (blue circle arrow)
             currentSimulationLatLng?.let { simLatLng ->
-                Marker(
-                    state = MarkerState(position = simLatLng),
-                    title = "My Location",
-                    icon = BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE)
-                )
+                MarkerComposable(
+                    state = rememberMarkerState(position = simLatLng)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .background(Color(0xFF1B4FD8), shape = CircleShape)
+                            .border(3.dp, Color.White, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("➔", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
 
-            // Hazard markers on safety map
+            // Dynamic Animated Hazard Markers
             filteredHazards.forEach { hazard ->
                 val position = LatLng(hazard.latitude, hazard.longitude)
-                val hue = when (hazard.severity) {
-                    Severity.HIGH -> BitmapDescriptorFactory.HUE_RED
-                    Severity.MEDIUM -> BitmapDescriptorFactory.HUE_ORANGE
-                    Severity.LOW -> BitmapDescriptorFactory.HUE_YELLOW
+                
+                // Infinite Transition for the glowing pulse animation
+                val infiniteTransition = rememberInfiniteTransition(label = "pulse_${hazard.id}")
+                val pulseScale by infiniteTransition.animateFloat(
+                    initialValue = 1.0f,
+                    targetValue = 1.8f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1200, easing = LinearEasing),
+                        repeatMode = RepeatMode.Restart
+                    ),
+                    label = "scale"
+                )
+                val pulseAlpha by infiniteTransition.animateFloat(
+                    initialValue = 0.6f,
+                    targetValue = 0.0f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(1200, easing = LinearEasing),
+                        repeatMode = RepeatMode.Restart
+                    ),
+                    label = "alpha"
+                )
+                
+                val severityColor = when (hazard.severity) {
+                    Severity.HIGH -> Color(0xFFDC2626)
+                    Severity.MEDIUM -> Color(0xFFD97706)
+                    Severity.LOW -> Color(0xFF16A34A)
                 }
 
-                Marker(
-                    state = MarkerState(position = position),
-                    title = hazard.title,
-                    icon = BitmapDescriptorFactory.defaultMarker(hue),
-                    onClick = {
-                        selectedHazardForSheet = hazard
-                        true
+                if (isNavigationMode) {
+                    // Mode 2 flag style pin
+                    MarkerComposable(
+                        state = rememberMarkerState(position = position),
+                        title = hazard.title
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(severityColor, shape = RoundedCornerShape(4.dp))
+                                    .border(1.dp, Color.White, RoundedCornerShape(4.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("🚩", fontSize = 12.sp)
+                            }
+                        }
                     }
-                )
+                } else {
+                    // Mode 1 custom pulsing pin
+                    MarkerComposable(
+                        state = rememberMarkerState(position = position),
+                        onClick = {
+                            selectedHazardForSheet = hazard
+                            true
+                        }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            // Fading expanding circular pulse
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .scale(pulseScale)
+                                    .background(severityColor.copy(alpha = pulseAlpha), shape = CircleShape)
+                            )
+                            
+                            // Static inner severity pin
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(severityColor, shape = CircleShape)
+                                    .border(2.dp, Color.White, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                val isCluster = hazard.verificationCount > 10
+                                if (isCluster) {
+                                    Text(
+                                        text = (hazard.verificationCount / 2).toString(),
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                } else {
+                                    Text(
+                                        text = "!",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // Draw route Endpoint Pin markers
-            if (routePoints.isNotEmpty()) {
+            if (routePoints.isNotEmpty() && !isNavigationMode) {
                 Marker(
                     state = MarkerState(position = routePoints.first()),
                     title = "Start: $originName",
@@ -562,689 +715,798 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
             }
         }
 
-        // 2. Normal View Overlays (Route Planner, Filters, Title Header)
+        // ==========================================
+        // MODE 1: Normal View Overlays (Light Theme)
+        // ==========================================
         if (!isNavigationMode) {
+            // Title Header Bar
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color(0xFF111827),
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clickable { /* Go Back */ }
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Hazard Map",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp,
+                                color = Color(0xFF111827)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Dropdown",
+                                tint = Color(0xFF111827),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Text(
+                            text = "$viewportHazardsCount hazards in this area",
+                            fontSize = 11.sp,
+                            color = Color(0xFF6B7280)
+                        )
+                    }
+                    
+                    IconButton(onClick = { /* Filter Toggle */ }) {
+                        MapFilterIcon(color = Color(0xFF1B4FD8))
+                    }
+                    IconButton(onClick = { isSatelliteEnabled = !isSatelliteEnabled }) {
+                        LayersIcon(color = Color(0xFF111827))
+                    }
+                }
+            }
+
+            // Search / Destination Planner Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .padding(top = 80.dp, start = 16.dp, end = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showDestinationDialog = true }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = Color(0xFF9CA3AF),
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = if (isRouteActive) "Routing to: $destinationName" else "Search destination to navigate...",
+                        color = if (isRouteActive) Color(0xFF111827) else Color(0xFF9CA3AF),
+                        fontSize = 14.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (isRouteActive) {
+                        IconButton(
+                            onClick = {
+                                isRouteActive = false
+                                isNavigationMode = false
+                                NavigationState.isRideModeActive = false
+                            },
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = Color(0xFF6B7280),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Right side Floating Actions
+            Column(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 16.dp, bottom = 48.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Current location target
+                FloatingActionButton(
+                    onClick = {
+                        userLatLng?.let { latLng ->
+                            cameraPositionState.position = CameraPosition.fromLatLngZoom(latLng, 15f)
+                        }
+                    },
+                    containerColor = Color.White,
+                    contentColor = Color(0xFF1B4FD8),
+                    shape = CircleShape,
+                    modifier = Modifier.size(46.dp),
+                    elevation = FloatingActionButtonDefaults.elevation(0.dp)
+                ) {
+                    TargetLocationIcon(color = Color(0xFF1B4FD8), modifier = Modifier.size(20.dp))
+                }
+
+                // Report Hazard float icon
+                FloatingActionButton(
+                    onClick = { /* Handle report navigation */ },
+                    containerColor = Color.White,
+                    contentColor = Color(0xFFDC2626),
+                    shape = CircleShape,
+                    modifier = Modifier.size(46.dp),
+                    elevation = FloatingActionButtonDefaults.elevation(0.dp)
+                ) {
+                    Icon(imageVector = Icons.Default.Warning, contentDescription = "Report", tint = Color(0xFF1B4FD8), modifier = Modifier.size(20.dp))
+                }
+            }
+
+            // Bottom controls & Sheets Stack
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 16.dp)
-                    .align(Alignment.TopCenter),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Top Safety Map Title Header Box
+                // Floating Drive Mode Button
+                Button(
+                    onClick = {
+                        if (routePoints.isNotEmpty()) {
+                            isNavigationMode = true
+                        } else {
+                            Toast.makeText(context, "No route available. Click a marker and choose Navigate Here first.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B4FD8)),
+                    shape = RoundedCornerShape(24.dp),
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("🚘", fontSize = 14.sp)
+                        Text("Drive Mode", color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                // Clicked Hazard detail sheet card
+                selectedHazardForSheet?.let { hazard ->
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, Color(0xFFE5E7EB))
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            // Slide bar
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.CenterHorizontally)
+                                    .width(36.dp)
+                                    .height(4.dp)
+                                    .background(Color(0xFFE5E7EB), shape = RoundedCornerShape(2.dp))
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                // Thumbnail
+                                Box(
+                                    modifier = Modifier
+                                        .size(68.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Color(0xFFF3F4F6)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("📸", fontSize = 24.sp)
+                                }
+
+                                // Details
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = hazard.title,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = Color(0xFF111827)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = hazard.locationName,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFF6B7280)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        // Distance
+                                        val distanceMeters = if (userLatLng != null) {
+                                            BackendClient.distanceInMeters(
+                                                hazard.latitude, hazard.longitude,
+                                                userLatLng!!.latitude, userLatLng!!.longitude
+                                            )
+                                        } else {
+                                            BackendClient.distanceInMeters(
+                                                hazard.latitude, hazard.longitude,
+                                                centerLatLng.latitude, centerLatLng.longitude
+                                            )
+                                        }
+                                        val distanceText = if (distanceMeters >= 1000) {
+                                            String.format("📍 %.1f km away", distanceMeters / 1000.0)
+                                        } else {
+                                            String.format("📍 %d m away", distanceMeters.toInt())
+                                        }
+                                        Text(distanceText, fontSize = 10.sp, color = Color(0xFF6B7280))
+                                        
+                                        // Severity badge
+                                        Box(
+                                            modifier = Modifier
+                                                .background(
+                                                    color = when (hazard.severity) {
+                                                        Severity.HIGH -> Color(0xFFFEE2E2)
+                                                        Severity.MEDIUM -> Color(0xFFFEF3C7)
+                                                        Severity.LOW -> Color(0xFFD1FAE5)
+                                                    },
+                                                    shape = RoundedCornerShape(4.dp)
+                                                )
+                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = when (hazard.severity) {
+                                                    Severity.HIGH -> "High"
+                                                    Severity.MEDIUM -> "Medium"
+                                                    Severity.LOW -> "Low"
+                                                },
+                                                color = when (hazard.severity) {
+                                                    Severity.HIGH -> Color(0xFFDC2626)
+                                                    Severity.MEDIUM -> Color(0xFFD97706)
+                                                    Severity.LOW -> Color(0xFF16A34A)
+                                                },
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+
+                                        // Time
+                                        Text("🕒 ${hazard.reportTime}", fontSize = 10.sp, color = Color(0xFF6B7280))
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = hazard.description,
+                                fontSize = 12.sp,
+                                color = Color(0xFF374151)
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = { onNavigateToDetail(hazard.id) },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text("View Details", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Button(
+                                    onClick = {
+                                        destinationLatLng = LatLng(hazard.latitude, hazard.longitude)
+                                        destinationName = hazard.locationName
+                                        selectedHazardForSheet = null
+                                        isRouteActive = true
+                                        isNavigationMode = true
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(6.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B4FD8))
+                                ) {
+                                    Text("Navigate Here", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Summary Stats Card
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.White),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE5E7EB))
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceAround
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "Safety Map",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 18.sp,
-                                color = Color(0xFF0F172A)
-                            )
-                            Text(
-                                text = "View hazards, report issues & travel safely",
-                                fontSize = 11.sp,
-                                color = Color(0xFF64748B)
-                            )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(text = totalCount.toString(), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF111827))
+                            Text(text = "Total", fontSize = 11.sp, color = Color(0xFF6B7280))
                         }
-
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(Color(0xFFF1F5F9), shape = CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.Search, contentDescription = "Search", tint = Color(0xFF475569), modifier = Modifier.size(18.dp))
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(Color(0xFFF1F5F9), shape = CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.Notifications, contentDescription = "Notifications", tint = Color(0xFF475569), modifier = Modifier.size(18.dp))
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .background(Color(0xFFEF4444), shape = CircleShape)
-                                        .align(Alignment.TopEnd)
-                                        .offset(x = 1.dp, y = (-1).dp)
-                                )
-                            }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(text = highCount.toString(), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                            Text(text = "High", fontSize = 11.sp, color = Color(0xFFDC2626))
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(text = mediumCount.toString(), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFFD97706))
+                            Text(text = "Medium", fontSize = 11.sp, color = Color(0xFFD97706))
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(text = lowCount.toString(), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF16A34A))
+                            Text(text = "Low", fontSize = 11.sp, color = Color(0xFF16A34A))
                         }
                     }
-                }
-
-                // Filter Bar with M3 Chip Design style
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Filters Reset chip
-                    Row(
-                        modifier = Modifier
-                            .background(Color.White, shape = CircleShape)
-                            .border(1.dp, Color(0xFF16A34A), CircleShape)
-                            .clickable {
-                                selectedCategoryFilter = "All Issues"
-                                selectedSeverityFilter = "All Severity"
-                                selectedStatusFilter = "Live"
-                                searchQuery = ""
-                            }
-                            .padding(horizontal = 14.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        MapFilterIcon(color = Color(0xFF16A34A))
-                        Text("Filters", color = Color(0xFF16A34A), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    }
-
-                    // Issue Type Filter Chip
-                    Box {
-                        M3FilterChip(
-                            text = selectedCategoryFilter,
-                            selected = selectedCategoryFilter != "All Issues",
-                            onClick = { isIssuesDropdownExpanded = true }
-                        )
-                        DropdownMenu(
-                            expanded = isIssuesDropdownExpanded,
-                            onDismissRequest = { isIssuesDropdownExpanded = false }
-                        ) {
-                            val issues = listOf("All Issues", "Pothole", "Open Drain", "Garbage Dump", "Water Logging", "Broken Street Light")
-                            issues.forEach { issue ->
-                                DropdownMenuItem(
-                                    text = { Text(issue) },
-                                    onClick = {
-                                        selectedCategoryFilter = issue
-                                        isIssuesDropdownExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    // Severity Filter Chip
-                    Box {
-                        M3FilterChip(
-                            text = selectedSeverityFilter,
-                            selected = selectedSeverityFilter != "All Severity",
-                            onClick = { isSeverityDropdownExpanded = true }
-                        )
-                        DropdownMenu(
-                            expanded = isSeverityDropdownExpanded,
-                            onDismissRequest = { isSeverityDropdownExpanded = false }
-                        ) {
-                            val severities = listOf("All Severity", "Low", "Medium", "High")
-                            severities.forEach { sev ->
-                                DropdownMenuItem(
-                                    text = { Text(sev) },
-                                    onClick = {
-                                        selectedSeverityFilter = sev
-                                        isSeverityDropdownExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    // Status Filter Chip
-                    Box {
-                        M3FilterChip(
-                            text = selectedStatusFilter,
-                            selected = selectedStatusFilter != "Live",
-                            onClick = { isStatusDropdownExpanded = true }
-                        )
-                        DropdownMenu(
-                            expanded = isStatusDropdownExpanded,
-                            onDismissRequest = { isStatusDropdownExpanded = false }
-                        ) {
-                            val statuses = listOf("Live", "Active", "Verified")
-                            statuses.forEach { st ->
-                                DropdownMenuItem(
-                                    text = { Text(st) },
-                                    onClick = {
-                                        selectedStatusFilter = st
-                                        isStatusDropdownExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Cleaner Route Planner Card with selection dialog triggers
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 3.dp)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Point A selection trigger
-                            Row(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable { showOriginDialog = true }
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(26.dp)
-                                        .background(Color(0xFFDCFCE7), shape = CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("A", color = Color(0xFF15803D), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                }
-                                Column {
-                                    Text("Current Location", fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Bold)
-                                    Text(originName, fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
-
-                            // Search symbol in between
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Separator",
-                                tint = Color(0xFFE2E8F0),
-                                modifier = Modifier.size(16.dp)
-                            )
-
-                            // Point B selection trigger
-                            Row(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clickable { showDestinationDialog = true }
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(26.dp)
-                                        .background(Color(0xFFFEE2E2), shape = CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text("B", color = Color(0xFFB91C1C), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                }
-                                Column {
-                                    Text("Destination", fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Bold)
-                                    Text(destinationName, fontSize = 13.sp, color = Color(0xFF0F172A), fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                }
-                            }
-
-                            // Swap button
-                            Box(
-                                modifier = Modifier
-                                    .size(34.dp)
-                                    .background(Color(0xFFF1F5F9), shape = RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        val tLng = originLatLng
-                                        val tName = originName
-                                        originLatLng = destinationLatLng
-                                        originName = destinationName
-                                        destinationLatLng = tLng
-                                        destinationName = tName
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                SwapIcon(color = Color(0xFF475569))
-                            }
-                        }
-
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 14.dp), color = Color(0xFFF1F5F9))
-
-                        // Active route stats details & Start Ride button
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            if (activeRoute != null) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    // Clickable Safest Route chip (toggles route if alternatives exist)
-                                    Box(
-                                        modifier = Modifier
-                                            .background(Color(0xFFEFF6FF), shape = RoundedCornerShape(12.dp))
-                                            .border(1.dp, Color(0xFF3B82F6), RoundedCornerShape(12.dp))
-                                            .clickable {
-                                                if (routesList.size > 1) {
-                                                    selectedRouteIndex = (selectedRouteIndex + 1) % routesList.size
-                                                }
-                                            }
-                                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                                    ) {
-                                        val label = if (activeRoute.riskScore == 0) "Safest Route" else "Alternative"
-                                        Text(label, color = Color(0xFF1D4ED8), fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                                    }
-                                    Text(activeRoute.distanceText, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF0F172A))
-                                    Text(activeRoute.durationText, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF0F172A))
-                                    Text("Low Traffic", fontSize = 11.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Medium)
-                                }
-                            } else {
-                                Text(
-                                    text = if (isFetchingRoutes) "Calculating routes..." else "No route found",
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF64748B)
-                                )
-                            }
-
-                            // Start Ride Button
-                            Button(
-                                onClick = {
-                                    if (activeRoute != null) {
-                                        isNavigationMode = true
-                                    } else {
-                                        Toast.makeText(context, "No route calculated to start navigation.", Toast.LENGTH_SHORT).show()
-                                    }
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
-                                shape = RoundedCornerShape(12.dp),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                                enabled = activeRoute != null
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    PlayIcon(color = Color.White)
-                                    Text("Start Ride", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Bottom-Left Re-center Card control
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = 16.dp, bottom = 16.dp)
-                    .background(Color.White, shape = RoundedCornerShape(12.dp))
-                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
-                    .clickable {
-                        userLatLng?.let { latLng ->
-                            cameraPositionState.position = CameraPosition.fromLatLngZoom(latLng, 14.5f)
-                        }
-                    }
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    TargetLocationIcon(color = Color(0xFF475569), modifier = Modifier.size(16.dp))
-                    Text("Re-center", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
                 }
             }
         }
 
-        // 3. Navigation Active Fullscreen Overlays (Ride Mode)
+        // ===========================================
+        // MODE 2: Active Navigation Drive Dashboard
+        // ===========================================
         if (isNavigationMode) {
-            // Top Floating Navigation Card
-            activeRoute?.let { route ->
-                val remainingPoints = route.points.size - currentSimulationIndex
-                val remainingDistance = (remainingPoints.coerceAtLeast(1) * (route.distanceMeters / route.points.size.coerceAtLeast(1)))
-                val remainingDuration = (remainingPoints.coerceAtLeast(1) * (route.durationSeconds / route.points.size.coerceAtLeast(1)))
-                
-                val distText = String.format("%.1f km", remainingDistance / 1000f)
-                val etaText = "${remainingDuration / 60} min"
-                
+            val currentSpeed = remember(tripSeconds) { 40 + (tripSeconds % 6) }
+            val tripTimeText = remember(tripSeconds) {
+                val h = tripSeconds / 3600
+                val m = (tripSeconds % 3600) / 60
+                val s = tripSeconds % 60
+                String.format("%02d:%02d:%02d", h, m, s)
+            }
+
+            val navRoute = remember(routesList, selectedRouteIndex) {
+                routesList.getOrNull(selectedRouteIndex)
+            }
+            val remainingPoints = remember(navRoute, currentSimulationIndex) {
+                if (navRoute != null) (navRoute.points.size - currentSimulationIndex).coerceAtLeast(1) else 1
+            }
+            val totalPoints = remember(navRoute) {
+                if (navRoute != null) navRoute.points.size.coerceAtLeast(1) else 1
+            }
+            val ratio = remainingPoints.toFloat() / totalPoints.toFloat()
+
+            val remainingDistanceMeters = remember(navRoute, ratio) {
+                if (navRoute != null) (navRoute.distanceMeters * ratio).toInt() else 0
+            }
+            val remainingDurationSeconds = remember(navRoute, ratio) {
+                if (navRoute != null) (navRoute.durationSeconds * ratio).toInt() else 0
+            }
+
+            val distanceText = remember(remainingDistanceMeters) {
+                if (remainingDistanceMeters >= 1000) {
+                    String.format("%.1f km", remainingDistanceMeters / 1000.0)
+                } else {
+                    "$remainingDistanceMeters m"
+                }
+            }
+            val etaText = remember(remainingDurationSeconds) {
+                val min = remainingDurationSeconds / 60
+                if (min >= 60) {
+                    String.format("%02d:%02d hr", min / 60, min % 60)
+                } else {
+                    "$min min"
+                }
+            }
+            val hazardsOnRouteCount = remember(filteredHazards, routePoints) {
+                filteredHazards.count { hazard ->
+                    routePoints.any { pt ->
+                        BackendClient.distanceInMeters(hazard.latitude, hazard.longitude, pt.latitude, pt.longitude) <= 100.0
+                    }
+                }
+            }
+
+            // Top Floating Dashboard Panel
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.TopCenter)
+                    .padding(16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Col 1: Speed
+                        Column(horizontalAlignment = Alignment.Start) {
+                            Text("DRIVE MODE", fontSize = 9.sp, color = Color(0xFFF1F5F9), fontWeight = FontWeight.Bold)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                Text(
+                                    text = "$currentSpeed",
+                                    fontSize = 26.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text("km/h", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                            }
+                        }
+
+                        // Col 2: Alert Status
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            if (approachingHazard != null) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("⚠️", fontSize = 12.sp)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "${approachingHazardDistance.toInt()}m ahead",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFF59E0B)
+                                    )
+                                }
+                                Text(
+                                    text = "${approachingHazard!!.title} - ${approachingHazard!!.rawSeverity}",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFFCBD5E1)
+                                )
+                            } else {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("🛡️", fontSize = 12.sp)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("All Clear", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF10B981))
+                                }
+                                Text("No hazards detected on route", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                            }
+                        }
+
+                        // Col 3: Trip Time
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = tripTimeText,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Text("Trip Time", fontSize = 9.sp, color = Color(0xFF94A3B8))
+                        }
+                    }
+
+                    // safety gradient progress bar separating panel from map
+                    Canvas(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                    ) {
+                        val w = size.width
+                        val h = size.height
+                        // Draw horizontal safety color bar (Green -> Yellow -> Red)
+                        drawRect(
+                            brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                colors = listOf(Color(0xFF10B981), Color(0xFFF59E0B), Color(0xFFEF4444))
+                            ),
+                            topLeft = Offset(0f, 0f),
+                            size = Size(w, h)
+                        )
+                    }
+                }
+            }
+
+            // Hazard Ahead Red Alert Banner (if hazard is detected)
+            approachingHazard?.let { hazard ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
-                        .padding(horizontal = 16.dp, vertical = 16.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                    shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                        .padding(top = 110.dp, start = 16.dp, end = 16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFDC2626)),
+                    shape = RoundedCornerShape(8.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            NavigationTurnRightIcon(color = Color(0xFF16A34A))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("⚠️", fontSize = 16.sp)
+                            Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Text(
-                                    text = "800 m",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp,
-                                    color = Color(0xFF16A34A)
-                                )
-                                Text(
-                                    text = "Turn right onto Mahaveer Road",
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF0F172A),
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Text("HAZARD AHEAD", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                Text("${hazard.title} — ${approachingHazardDistance.toInt()}m ahead on route", fontSize = 11.sp, color = Color.White)
                             }
                         }
-                        
-                        Column(
-                            horizontalAlignment = Alignment.End
-                        ) {
-                            Text(
-                                text = etaText,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
-                                color = Color(0xFF0F172A)
-                            )
-                            Text(
-                                text = distText,
-                                fontSize = 11.sp,
-                                color = Color(0xFF64748B)
-                            )
-                            val riskLabel = if (route.riskScore == 0) "No Risk" else if (route.riskScore <= 3) "Low Risk" else "Medium Risk"
-                            val riskColor = if (route.riskScore == 0) Color(0xFF16A34A) else if (route.riskScore <= 3) Color(0xFFD97706) else Color(0xFFEF4444)
-                            Text(
-                                text = riskLabel,
-                                fontSize = 10.sp,
-                                color = riskColor,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
+                        Text("${approachingHazardDistance.toInt()}m", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
                     }
                 }
             }
 
-            // Animated Warning Overlay Card (Approaching hazard within 100m)
-            approachingHazard?.let { hazard ->
-                val infiniteTransition = rememberInfiniteTransition(label = "warnAnim")
-                val scale by infiniteTransition.animateFloat(
-                    initialValue = 0.95f,
-                    targetValue = 1.05f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(800, easing = LinearEasing),
-                        repeatMode = RepeatMode.Reverse
-                    ),
-                    label = "scale"
-                )
+            // Floating controls (volume and closest alert overlay)
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 16.dp, bottom = 280.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Speaker Mute button
+                FloatingActionButton(
+                    onClick = {
+                        isVoiceAlertsEnabled = !isVoiceAlertsEnabled
+                        val msg = if (isVoiceAlertsEnabled) "Voice alerts enabled" else "Voice alerts disabled"
+                        Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                    },
+                    containerColor = Color(0xFF1E293B),
+                    contentColor = Color.White,
+                    shape = CircleShape,
+                    modifier = Modifier.size(46.dp),
+                    elevation = FloatingActionButtonDefaults.elevation(0.dp)
+                ) {
+                    VolumeMuteIcon(color = Color.White, isMuted = !isVoiceAlertsEnabled)
+                }
+            }
 
+            // Closest hazard HUD floating card
+            approachingHazard?.let { hazard ->
                 Box(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(horizontal = 24.dp)
-                        .scale(scale)
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 280.dp)
                 ) {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF2F2)),
-                        shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(2.dp, Color(0xFFEF4444)),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, Color(0xFFDC2626))
                     ) {
-                        Column(
-                            modifier = Modifier.padding(20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("⚠️ High Risk Ahead", color = Color(0xFFB91C1C), fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                            Text(hazard.title, color = Color(0xFF0F172A), fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                            Text("${approachingHazardDistance.toInt()} meters ahead", color = Color(0xFFDC2626), fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("Slow down immediately", color = Color(0xFF64748B), fontSize = 12.sp)
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .background(Color(0xFFDC2626), shape = CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("⚠️", fontSize = 11.sp)
+                            }
+                            Column {
+                                Text(hazard.title.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                Text("${approachingHazardDistance.toInt()} METERS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
+                            }
                         }
                     }
                 }
             }
 
-            // Bottom Floating Ride Panel (SOS, Share Location, Mute Voice, End Ride)
+            // Bottom dark dashboard container
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                    .align(Alignment.BottomCenter),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF0F172A)),
+                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    // Segmented Route Safety Progress Bar
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .background(Color(0xFFDCFCE7), shape = CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("A", color = Color(0xFF15803D), fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                        }
-                        
-                        Canvas(modifier = Modifier
-                            .weight(1f)
-                            .height(24.dp)
-                            .padding(horizontal = 10.dp)
-                        ) {
-                            val w = size.width
-                            val cy = size.height / 2f
-                            val strokeWidth = 6.dp.toPx()
-                            
-                            // Safe (green) segment
-                            drawLine(Color(0xFF22C55E), Offset(0f, cy), Offset(w * 0.35f, cy), strokeWidth, cap = StrokeCap.Round)
-                            // Medium Risk (yellow) segment
-                            drawLine(Color(0xFFEAB308), Offset(w * 0.35f, cy), Offset(w * 0.55f, cy), strokeWidth)
-                            // High Risk (orange) segment
-                            drawLine(Color(0xFFF97316), Offset(w * 0.55f, cy), Offset(w * 0.75f, cy), strokeWidth)
-                            // Critical Risk (red) segment
-                            drawLine(Color(0xFFEF4444), Offset(w * 0.75f, cy), Offset(w - 10f, cy), strokeWidth, cap = StrokeCap.Round)
-                            
-                            // Draw animated progress indicator dot
-                            if (routePoints.isNotEmpty()) {
-                                val ratio = currentSimulationIndex.toFloat() / routePoints.size.toFloat()
-                                val indicatorX = w * ratio
-                                drawCircle(Color(0xFF1D4ED8), radius = 6.dp.toPx(), center = Offset(indicatorX, cy))
-                            }
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .background(Color(0xFFFEE2E2), shape = CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("B", color = Color(0xFFB91C1C), fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                        }
-                    }
-
-                    // Navigation Control buttons
+                    // Row 1: Remaining distance, ETA, hazards count
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Emergency SOS
-                        Row(
-                            modifier = Modifier
-                                .clickable {
-                                    Toast.makeText(context, "SOS Emergency Broadcast Sent to nearest response team.", Toast.LENGTH_LONG).show()
-                                }
-                                .padding(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
+                        Column {
+                            Text("Distance", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                            Text(distanceText, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("ETA adj", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                            Text(etaText, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("On Route", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                            Text("$hazardsOnRouteCount hazards", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+
+                    HorizontalDivider(color = Color(0xFF334155), thickness = 0.8.dp)
+
+                    // Row 2: Hazard Alerts Config Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 modifier = Modifier
-                                    .size(24.dp)
-                                    .background(Color(0xFFEF4444), shape = CircleShape),
+                                    .size(36.dp)
+                                    .background(Color(0xFF1E293B), shape = CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("SOS", color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                                MapBellIcon(color = Color(0xFFF59E0B), modifier = Modifier.size(18.dp))
                             }
-                            Text("SOS", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text("Hazard Alerts", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                Text("Alert when hazard within 500m", fontSize = 10.sp, color = Color(0xFF94A3B8))
+                            }
                         }
-
-                        // Share Live Location
-                        Row(
-                            modifier = Modifier
-                                .clickable {
-                                    Toast.makeText(context, "Live Location sharing link copied to clipboard.", Toast.LENGTH_SHORT).show()
-                                }
-                                .padding(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            ShareIcon(color = Color(0xFF16A34A))
-                            Text("Share", color = Color(0xFF64748B), fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        }
-
-                        // Mute Voice alerts toggle
-                        Row(
-                            modifier = Modifier
-                                .clickable {
-                                    isVoiceMuted = !isVoiceMuted
-                                    val toastMsg = if (isVoiceMuted) "Voice alerts muted." else "Voice alerts unmuted."
-                                    Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
-                                }
-                                .padding(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            VolumeMuteIcon(color = if (isVoiceMuted) Color(0xFF64748B) else Color(0xFF16A34A), isMuted = isVoiceMuted)
-                            Text(
-                                text = if (isVoiceMuted) "Unmute" else "Mute",
-                                color = Color(0xFF64748B),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp
+                        
+                        Switch(
+                            checked = isAlertsEnabled,
+                            onCheckedChange = { isAlertsEnabled = it },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFFF59E0B)
                             )
+                        )
+                    }
+
+                    // Row 3: Action toggles strip
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        // Voice Alerts Toggle Card
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    isVoiceAlertsEnabled = !isVoiceAlertsEnabled
+                                },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isVoiceAlertsEnabled) Color(0xFF1E293B) else Color(0xFF0B1329)
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (isVoiceAlertsEnabled) Color(0xFFF59E0B) else Color(0xFF1E293B))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                MapSpeakerIcon(
+                                    color = if (isVoiceAlertsEnabled) Color(0xFFF59E0B) else Color(0xFF64748B),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("Voice Alerts", fontSize = 9.sp, color = Color(0xFF94A3B8))
+                                Text(
+                                    text = if (isVoiceAlertsEnabled) "ON" else "OFF",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isVoiceAlertsEnabled) Color(0xFFF59E0B) else Color(0xFF64748B)
+                                )
+                            }
                         }
 
-                        // Stop/End Ride
-                        Row(
+                        // Vibration Toggle Card
+                        Card(
                             modifier = Modifier
+                                .weight(1f)
                                 .clickable {
-                                    isNavigationMode = false
-                                    NavigationState.isRideModeActive = false
-                                }
-                                .padding(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    isVibrationEnabled = !isVibrationEnabled
+                                },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isVibrationEnabled) Color(0xFF1E293B) else Color(0xFF0B1329)
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (isVibrationEnabled) Color(0xFFF59E0B) else Color(0xFF1E293B))
                         ) {
+                            Column(
+                                modifier = Modifier.padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                VibrationIcon(
+                                    color = if (isVibrationEnabled) Color(0xFFF59E0B) else Color(0xFF64748B),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("Vibration", fontSize = 9.sp, color = Color(0xFF94A3B8))
+                                Text(
+                                    text = if (isVibrationEnabled) "ON" else "OFF",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isVibrationEnabled) Color(0xFFF59E0B) else Color(0xFF64748B)
+                                )
+                            }
+                        }
+
+                        // Route Avoid Toggle Card
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    isRouteAvoidEnabled = !isRouteAvoidEnabled
+                                },
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isRouteAvoidEnabled) Color(0xFF1E293B) else Color(0xFF0B1329)
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (isRouteAvoidEnabled) Color(0xFFF59E0B) else Color(0xFF1E293B))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                RouteAvoidIcon(
+                                    color = if (isRouteAvoidEnabled) Color(0xFFF59E0B) else Color(0xFF64748B),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("Route Avoid", fontSize = 9.sp, color = Color(0xFF94A3B8))
+                                Text(
+                                    text = if (isRouteAvoidEnabled) "ON" else "OFF",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isRouteAvoidEnabled) Color(0xFFF59E0B) else Color(0xFF64748B)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    // End Trip Red Button
+                    Button(
+                        onClick = {
+                            isNavigationMode = false
+                            NavigationState.isRideModeActive = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(48.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Stop square icon representation
                             Box(
                                 modifier = Modifier
-                                    .size(20.dp)
-                                    .border(1.5.dp, Color(0xFFEF4444), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("✕", color = Color(0xFFEF4444), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                            Text("Stop", color = Color(0xFFEF4444), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    .size(14.dp)
+                                    .border(2.dp, Color.White, RoundedCornerShape(2.dp))
+                            )
+                            Text("End Trip", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }
-                    }
-                }
-            }
-        }
-
-        // 4. Standard Floating Map Controls (Satellite, Compass, Location Target, Zoom vertical pill)
-        Column(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Layers Toggle
-            MapFloatingControl(
-                onClick = { isSatelliteEnabled = !isSatelliteEnabled }
-            ) {
-                LayersIcon(color = Color(0xFF475569))
-            }
-
-            // Compass Toggle
-            MapFloatingControl(
-                onClick = {
-                    cameraPositionState.position = CameraPosition.fromLatLngZoom(cameraPositionState.position.target, cameraPositionState.position.zoom)
-                }
-            ) {
-                CompassIcon(color = Color(0xFF475569))
-            }
-
-            // Current Location Target
-            MapFloatingControl(
-                onClick = {
-                    userLatLng?.let { latLng ->
-                        cameraPositionState.position = CameraPosition.fromLatLngZoom(latLng, 15f)
-                    }
-                }
-            ) {
-                TargetLocationIcon(color = Color(0xFF475569))
-            }
-
-            // Vertical Zoom Card pill
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clickable {
-                                cameraPositionState.position = CameraPosition.fromLatLngZoom(
-                                    cameraPositionState.position.target,
-                                    cameraPositionState.position.zoom + 1f
-                                )
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("+", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
-                    }
-                    HorizontalDivider(modifier = Modifier.width(20.dp), color = Color(0xFFE2E8F0))
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clickable {
-                                cameraPositionState.position = CameraPosition.fromLatLngZoom(
-                                    cameraPositionState.position.target,
-                                    cameraPositionState.position.zoom - 1f
-                                )
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("-", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
                     }
                 }
             }
@@ -2038,5 +2300,111 @@ private fun VolumeMuteIcon(modifier: Modifier = Modifier, color: Color, isMuted:
             // Diagonal line through speaker
             drawLine(Color(0xFFEF4444), Offset(w * 0.1f, h * 0.1f), Offset(w * 0.9f, h * 0.9f), strokeWidth)
         }
+    }
+}
+
+@Composable
+fun VibrationIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val strokeWidth = 2.dp.toPx()
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(w * 0.35f, h * 0.15f),
+            size = Size(w * 0.3f, h * 0.7f),
+            cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx()),
+            style = Stroke(width = strokeWidth)
+        )
+        drawArc(
+            color = color,
+            startAngle = 120f,
+            sweepAngle = 120f,
+            useCenter = false,
+            topLeft = Offset(w * 0.1f, h * 0.25f),
+            size = Size(w * 0.2f, h * 0.5f),
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+        )
+        drawArc(
+            color = color,
+            startAngle = -60f,
+            sweepAngle = 120f,
+            useCenter = false,
+            topLeft = Offset(w * 0.7f, h * 0.25f),
+            size = Size(w * 0.2f, h * 0.5f),
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
+        )
+    }
+}
+
+@Composable
+fun RouteAvoidIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val strokeWidth = 2.dp.toPx()
+        val path = Path().apply {
+            moveTo(w * 0.2f, h * 0.8f)
+            quadraticBezierTo(w * 0.5f, h * 0.8f, w * 0.5f, h * 0.5f)
+            quadraticBezierTo(w * 0.5f, h * 0.2f, w * 0.8f, h * 0.2f)
+        }
+        drawPath(path = path, color = color, style = Stroke(width = strokeWidth))
+        drawLine(
+            color = Color(0xFFEF4444),
+            start = Offset(w * 0.4f, h * 0.4f),
+            end = Offset(w * 0.6f, h * 0.6f),
+            strokeWidth = strokeWidth * 1.5f
+        )
+        drawLine(
+            color = Color(0xFFEF4444),
+            start = Offset(w * 0.6f, h * 0.4f),
+            end = Offset(w * 0.4f, h * 0.6f),
+            strokeWidth = strokeWidth * 1.5f
+        )
+    }
+}
+
+@Composable
+fun MapBellIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val strokeWidth = 1.8.dp.toPx()
+        val path = Path().apply {
+            moveTo(w * 0.5f, h * 0.15f)
+            quadraticBezierTo(w * 0.7f, h * 0.25f, w * 0.7f, h * 0.6f)
+            lineTo(w * 0.8f, h * 0.75f)
+            lineTo(w * 0.2f, h * 0.75f)
+            lineTo(w * 0.3f, h * 0.6f)
+            quadraticBezierTo(w * 0.3f, h * 0.25f, w * 0.5f, h * 0.15f)
+            close()
+        }
+        drawPath(path = path, color = color, style = Stroke(width = strokeWidth))
+        drawArc(
+            color = color,
+            startAngle = 0f,
+            sweepAngle = 180f,
+            useCenter = false,
+            topLeft = Offset(w * 0.42f, h * 0.75f),
+            size = Size(w * 0.16f, h * 0.12f)
+        )
+    }
+}
+
+@Composable
+fun MapSpeakerIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val path = Path().apply {
+            moveTo(w * 0.2f, h * 0.35f)
+            lineTo(w * 0.45f, h * 0.35f)
+            lineTo(w * 0.75f, h * 0.15f)
+            lineTo(w * 0.75f, h * 0.85f)
+            lineTo(w * 0.45f, h * 0.65f)
+            lineTo(w * 0.2f, h * 0.65f)
+            close()
+        }
+        drawPath(path = path, color = color)
     }
 }

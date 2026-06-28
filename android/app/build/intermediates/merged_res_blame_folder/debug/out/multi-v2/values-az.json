@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.nagarrakshak.app-mergeDebugResources-61:/values-az/values-az.xml",
+            "outputFile": "com.nagarrakshak.app-mergeDebugResources-62:/values-az/values-az.xml",
             "map": [
                 {
                     "source": "C:\\Users\\jkson\\.gradle\\caches\\transforms-3\\9985fd9723abd697ea6a7e477c876617\\transformed\\material3-release\\res\\values-az\\values-az.xml",

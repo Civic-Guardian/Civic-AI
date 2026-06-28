@@ -51,6 +51,21 @@ class HazardApiController extends Controller
                 'image_path' => 'nullable|string'
             ]);
 
+            // Optionally authenticate user from Bearer token (guest submissions have no token)
+            $userId = null;
+            $authorization = $request->header('Authorization');
+            if ($authorization && str_starts_with($authorization, 'Bearer ')) {
+                $token = substr($authorization, 7);
+                if (!empty($token)) {
+                    $user = \App\Models\User::where('remember_token', $token)->first();
+                    if ($user) {
+                        $userId = $user->id;
+                        $user->increment('reports_submitted');
+                        $user->addReputationPoints(100);
+                    }
+                }
+            }
+
             $hazard = Hazard::create([
                 'category' => $validatedData['category'],
                 'location_name' => $validatedData['location_name'],
@@ -61,7 +76,8 @@ class HazardApiController extends Controller
                 'description' => $validatedData['description'],
                 'verification_count' => 0,
                 'ai_analysis_summary' => $validatedData['ai_analysis_summary'] ?? null,
-                'image_path' => $validatedData['image_path'] ?? null
+                'image_path' => $validatedData['image_path'] ?? null,
+                'created_by' => $userId,
             ]);
 
             return response()->json([
@@ -90,6 +106,13 @@ class HazardApiController extends Controller
             }
             $hazard->save();
 
+            // Gamification: Award 20 points and increment verified count
+            $verifier = auth()->user();
+            if ($verifier) {
+                $verifier->increment('reports_verified');
+                $verifier->addReputationPoints(20);
+            }
+
             return response()->json([
                 'success' => true,
                 'data' => $hazard
@@ -111,6 +134,12 @@ class HazardApiController extends Controller
             $hazard = Hazard::findOrFail($id);
             $hazard->status = 'Resolved';
             $hazard->save();
+
+            // Gamification: Award 150 points to resolver
+            $resolver = auth()->user();
+            if ($resolver) {
+                $resolver->addReputationPoints(150);
+            }
 
             return response()->json([
                 'success' => true,

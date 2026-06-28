@@ -14,12 +14,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -28,24 +37,17 @@ import com.nagarrakshak.data.BackendClient
 import com.nagarrakshak.data.models.HazardReport
 import com.nagarrakshak.data.models.Severity
 import com.nagarrakshak.data.models.VerificationStatus
-import com.nagarrakshak.ui.theme.DangerColor
-import com.nagarrakshak.ui.theme.PrimaryColor
-import com.nagarrakshak.ui.theme.WarningColor
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AlertsScreen(onNavigateToDetail: (String) -> Unit) {
+fun AlertsScreen(
+    onNavigateToDetail: (String) -> Unit,
+    onNavigateToNotifications: () -> Unit
+) {
     var alertsList by remember { mutableStateOf<List<HazardReport>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    var selectedFilter by remember { mutableStateOf("All") }
+    var selectedTab by remember { mutableStateOf("All") }
+    var selectedChips by remember { mutableStateOf<Set<String>>(emptySet()) }
     var searchQuery by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
@@ -54,494 +56,441 @@ fun AlertsScreen(onNavigateToDetail: (String) -> Unit) {
         isLoading = false
     }
 
-    val filteredList = remember(alertsList, selectedFilter, searchQuery) {
-        val baseList = if (selectedFilter == "All") {
-            alertsList
-        } else {
-            alertsList.filter { alert ->
-                val severityStr = when (alert.severity) {
-                    Severity.HIGH -> "High"
-                    Severity.MEDIUM -> "Medium"
-                    Severity.LOW -> "Low"
-                }
-                severityStr.equals(selectedFilter, ignoreCase = true)
+    val highCount = remember(alertsList) { alertsList.count { it.severity == Severity.HIGH } }
+    val mediumCount = remember(alertsList) { alertsList.count { it.severity == Severity.MEDIUM } }
+    val lowCount = remember(alertsList) { alertsList.count { it.severity == Severity.LOW } }
+    val totalCount = alertsList.size
+
+    val filteredList = remember(alertsList, selectedTab, selectedChips, searchQuery) {
+        var list = alertsList
+
+        when (selectedTab) {
+            "High" -> list = list.filter { it.severity == Severity.HIGH }
+            "Medium" -> list = list.filter { it.severity == Severity.MEDIUM }
+            "Low" -> list = list.filter { it.severity == Severity.LOW }
+            "Nearby" -> list = list.sortedBy {
+                kotlin.math.abs(it.latitude - 25.182) + kotlin.math.abs(it.longitude - 75.828)
             }
         }
 
-        if (searchQuery.isBlank()) {
-            baseList
-        } else {
-            baseList.filter { alert ->
-                alert.title.contains(searchQuery, ignoreCase = true) ||
-                alert.locationName.contains(searchQuery, ignoreCase = true) ||
-                alert.description.contains(searchQuery, ignoreCase = true)
+        if (selectedChips.isNotEmpty()) {
+            list = list.filter { alert ->
+                selectedChips.any { chip ->
+                    alert.category.contains(chip, ignoreCase = true) ||
+                    alert.title.contains(chip, ignoreCase = true)
+                }
             }
         }
+
+        if (searchQuery.isNotBlank()) {
+            list = list.filter { alert ->
+                alert.title.contains(searchQuery, ignoreCase = true) ||
+                alert.locationName.contains(searchQuery, ignoreCase = true) ||
+                alert.description.contains(searchQuery, ignoreCase = true) ||
+                alert.category.contains(searchQuery, ignoreCase = true)
+            }
+        }
+
+        list
     }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp)
+            .background(Color(0xFFF5F7FA)),
+        contentPadding = PaddingValues(bottom = 24.dp)
     ) {
-        // 1. Top Header Component (matches home screen mockup)
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .background(Color(0xFF16A34A), shape = RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    ShieldIcon(color = Color.White)
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Good Morning, Citizen",
-                        fontSize = 13.sp,
-                        color = Color(0xFF64748B),
-                        fontWeight = FontWeight.Medium
-                    )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Kota",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF0F172A)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("▼", fontSize = 10.sp, color = Color(0xFF64748B))
-                    }
-                }
-
-                // Header Action Badges
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color(0xFF16A34A), shape = CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "82",
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color.White, shape = CircleShape)
-                            .border(1.dp, Color(0xFFE2E8F0), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Notifications,
-                            contentDescription = "Notifications",
-                            tint = Color(0xFF475569),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Box(
-                            modifier = Modifier
-                                .size(14.dp)
-                                .background(Color(0xFFEF4444), shape = CircleShape)
-                                .align(Alignment.TopEnd)
-                                .offset(x = 2.dp, y = (-2).dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "3",
-                                color = Color.White,
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color.White, shape = CircleShape)
-                            .border(1.dp, Color(0xFFE2E8F0), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        ScanIconDraw()
-                    }
-                }
-            }
-        }
-
-        // 2. Search Alerts Bar
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = {
-                        Text(
-                            "Search alerts...",
-                            fontSize = 14.sp,
-                            color = Color(0xFF94A3B8)
-                        )
-                    },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = Color(0xFF94A3B8)
-                        )
-                    },
-                    modifier = Modifier.weight(1f),
-                    shape = CircleShape,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFFE2E8F0),
-                        unfocusedBorderColor = Color(0xFFE2E8F0),
-                        focusedContainerColor = Color.White,
-                        unfocusedContainerColor = Color.White
-                    ),
-                    singleLine = true
-                )
-
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(Color.White, shape = CircleShape)
-                        .border(1.dp, Color(0xFFE2E8F0), CircleShape)
-                        .clickable { /* Trigger voice search if needed */ },
-                    contentAlignment = Alignment.Center
-                ) {
-                    MicIcon(color = Color(0xFF475569))
-                }
-            }
-        }
-
-        // 3. Alerts Section Title
-        item {
-            Text(
-                text = "Alerts",
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF0F172A),
-                modifier = Modifier.padding(top = 4.dp)
-            )
-        }
-
-        // 4. Horizontal filter pills row
+        // 1. Top Header Bar
         item {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                FilterPill(text = "All", isSelected = selectedFilter == "All", onClick = { selectedFilter = "All" })
-                FilterPill(text = "High", color = Color(0xFFEF4444), isSelected = selectedFilter == "High", onClick = { selectedFilter = "High" })
-                FilterPill(text = "Medium", color = Color(0xFFD97706), isSelected = selectedFilter == "Medium", onClick = { selectedFilter = "Medium" })
-                FilterPill(text = "Low", color = Color(0xFF10B981), isSelected = selectedFilter == "Low", onClick = { selectedFilter = "Low" })
-                FilterPill(text = "Updates", isSelected = selectedFilter == "Updates", onClick = { selectedFilter = "Updates" })
-                
-                Box(
-                    modifier = Modifier
-                        .background(Color.White, shape = CircleShape)
-                        .border(1.dp, Color(0xFFE2E8F0), CircleShape)
-                        .clickable { }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                Text(
+                    text = "Alerts",
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF0F172A),
+                    modifier = Modifier.weight(1f)
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = "Filter",
-                            fontSize = 12.sp,
-                            color = Color(0xFF16A34A),
-                            fontWeight = FontWeight.Bold
-                        )
-                        FilterIcon(color = Color(0xFF16A34A))
+                    IconButton(onClick = { }) {
+                        Icon(Icons.Default.Search, "Search", tint = Color(0xFF374151), modifier = Modifier.size(24.dp))
+                    }
+                    IconButton(onClick = { }) {
+                        AlertsFilterIcon(color = Color(0xFF374151))
+                    }
+                    Box {
+                        IconButton(onClick = onNavigateToNotifications) {
+                            Icon(Icons.Default.Notifications, "Notifications", tint = Color(0xFF374151), modifier = Modifier.size(24.dp))
+                        }
+                        if (totalCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(Color(0xFFEF4444), CircleShape)
+                                    .align(Alignment.TopEnd)
+                                    .offset(x = (-4).dp, y = 4.dp)
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // 5. Dynamic Alerts card items
-        if (isLoading) {
-            items(3) {
-                SkeletonAlertCard()
+        // 2. Dark Navy Summary Cards
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SeveritySummaryCard(Modifier.weight(1f), highCount, "HIGH", Color(0xFFEF4444), "warning")
+                SeveritySummaryCard(Modifier.weight(1f), mediumCount, "MEDIUM", Color(0xFFF59E0B), "bell")
+                SeveritySummaryCard(Modifier.weight(1f), lowCount, "LOW", Color(0xFF3B82F6), "info")
             }
+        }
+
+        item {
+            Text(
+                text = "$totalCount active alerts in Kota",
+                fontSize = 12.sp, color = Color(0xFF94A3B8),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        }
+
+        // 3. Search Bar
+        item {
+            OutlinedTextField(
+                value = searchQuery, onValueChange = { searchQuery = it },
+                placeholder = { Text("Search alerts, areas, hazard types...", fontSize = 14.sp, color = Color(0xFF9CA3AF)) },
+                leadingIcon = { Icon(Icons.Default.Search, "Search", tint = Color(0xFF9CA3AF), modifier = Modifier.size(20.dp)) },
+                trailingIcon = { MicIcon(color = Color(0xFF6B7280)) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFFE5E7EB), unfocusedBorderColor = Color(0xFFE5E7EB),
+                    focusedContainerColor = Color.White, unfocusedContainerColor = Color.White
+                ),
+                singleLine = true
+            )
+        }
+
+        // 4. Severity Tab Row
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                SeverityTab("All", totalCount, selectedTab == "All", null) { selectedTab = "All" }
+                SeverityTab("High", highCount, selectedTab == "High", Color(0xFFEF4444)) { selectedTab = "High" }
+                SeverityTab("Medium", mediumCount, selectedTab == "Medium", Color(0xFFF59E0B)) { selectedTab = "Medium" }
+                SeverityTab("Low", lowCount, selectedTab == "Low", Color(0xFF10B981)) { selectedTab = "Low" }
+                SeverityTab("Nearby", null, selectedTab == "Nearby", null) { selectedTab = "Nearby" }
+                SeverityTab("Official", null, selectedTab == "Official", null) { selectedTab = "Official" }
+            }
+        }
+
+        // 5. Category Chip Filters
+        item {
+            val chipLabels = listOf("Today" to "📅", "Within 5km" to "📍", "Pothole" to "🕳️", "Waterlogging" to "🌊", "Broken Light" to "💡", "Road Damage" to "🚧")
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                chipLabels.forEach { (label, icon) ->
+                    val isChipSelected = selectedChips.contains(label)
+                    Box(
+                        modifier = Modifier
+                            .background(if (isChipSelected) Color(0xFF1E293B) else Color.White, RoundedCornerShape(20.dp))
+                            .border(1.dp, if (isChipSelected) Color(0xFF1E293B) else Color(0xFFE5E7EB), RoundedCornerShape(20.dp))
+                            .clickable { selectedChips = if (isChipSelected) selectedChips - label else selectedChips + label }
+                            .padding(horizontal = 12.dp, vertical = 7.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(icon, fontSize = 12.sp)
+                            Text(label, fontSize = 12.sp, color = if (isChipSelected) Color.White else Color(0xFF374151), fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+                Box(
+                    modifier = Modifier.background(Color.White, RoundedCornerShape(20.dp))
+                        .border(1.dp, Color(0xFF1B4FD8), RoundedCornerShape(20.dp))
+                        .clickable { }.padding(horizontal = 12.dp, vertical = 7.dp)
+                ) {
+                    Text("+ More Filters", fontSize = 12.sp, color = Color(0xFF1B4FD8), fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+
+        // 6. Section Header
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("NEW ALERTS", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF6B7280), letterSpacing = 1.sp)
+                Text("Mark all read", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1B4FD8), modifier = Modifier.clickable { })
+            }
+        }
+
+        // 7. Alert Cards
+        if (isLoading) {
+            items(3) { Box(Modifier.padding(horizontal = 16.dp)) { SkeletonAlertCard() } }
         } else if (filteredList.isEmpty()) {
             item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("No alerts found.", color = Color.Gray, fontSize = 14.sp)
+                Box(Modifier.fillMaxWidth().padding(48.dp), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("🔔", fontSize = 40.sp)
+                        Spacer(Modifier.height(12.dp))
+                        Text("No alerts found", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color(0xFF374151))
+                        Spacer(Modifier.height(4.dp))
+                        Text("Try adjusting your filters", fontSize = 13.sp, color = Color(0xFF9CA3AF))
+                    }
                 }
             }
         } else {
-            items(filteredList.size) { index ->
+            items(count = filteredList.size, key = { index -> filteredList[index].id }) { index ->
                 val alert = filteredList[index]
-                AlertPageCard(
-                    alert = alert,
-                    onClick = { onNavigateToDetail(alert.id) }
-                )
+                Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    AlertCardRedesigned(alert = alert, onClick = { onNavigateToDetail(alert.id) })
+                }
+            }
+        }
+
+        // 8. EARLIER footer
+        item {
+            Box(Modifier.fillMaxWidth().padding(vertical = 16.dp), contentAlignment = Alignment.Center) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    HorizontalDivider(Modifier.width(60.dp), 1.dp, Color(0xFFE5E7EB))
+                    Text("EARLIER", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF9CA3AF), letterSpacing = 1.sp)
+                    HorizontalDivider(Modifier.width(60.dp), 1.dp, Color(0xFFE5E7EB))
+                }
             }
         }
     }
 }
 
+// ====================================================
+// Severity Summary Card (Tinted/Light Pastel)
+// ====================================================
 @Composable
-fun FilterPill(
-    text: String,
-    color: Color? = null,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    val activeColor = color ?: Color(0xFF16A34A)
-    Box(
-        modifier = Modifier
-            .background(
-                color = if (isSelected) activeColor else Color.White,
-                shape = CircleShape
-            )
-            .border(
-                width = 1.dp,
-                color = if (isSelected) activeColor else Color(0xFFE2E8F0),
-                shape = CircleShape
-            )
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            if (color != null) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .background(if (isSelected) Color.White else color, shape = CircleShape)
-                )
-            }
-            Text(
-                text = text,
-                color = if (isSelected) Color.White else (color ?: Color(0xFF475569)),
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp
-            )
-        }
-    }
-}
-
-@Composable
-fun AlertPageCard(
-    alert: HazardReport,
-    onClick: () -> Unit
-) {
-    val severityColor = when (alert.severity) {
-        Severity.HIGH -> Color(0xFFB91C1C) // red-700
-        Severity.MEDIUM -> Color(0xFFB45309) // amber-700
-        Severity.LOW -> Color(0xFF15803D) // green-700
-    }
-    val severityBg = when (alert.severity) {
-        Severity.HIGH -> Color(0xFFFEE2E2) // red-100
-        Severity.MEDIUM -> Color(0xFFFEF3C7) // amber-100
-        Severity.LOW -> Color(0xFFDCFCE7) // green-100
-    }
-
-    val distanceStr = remember(alert.id) {
-        val hash = alert.id.hashCode()
-        val dist = 100 + (kotlin.math.abs(hash) % 800)
-        "${dist}m away"
-    }
-
-    val commentCount = remember(alert.id) {
-        val hash = alert.id.hashCode()
-        2 + (kotlin.math.abs(hash) % 6)
+fun SeveritySummaryCard(modifier: Modifier, count: Int, label: String, dotColor: Color, iconType: String) {
+    val (backgroundColor, textColor) = when (label.uppercase()) {
+        "HIGH" -> Pair(Color(0xFFFEF2F2), Color(0xFF991B1B))
+        "MEDIUM" -> Pair(Color(0xFFFFFBEB), Color(0xFF92400E))
+        else -> Pair(Color(0xFFEFF6FF), Color(0xFF1E40AF))
     }
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+        modifier = modifier.height(95.dp),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, textColor.copy(alpha = 0.12f))
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(IntrinsicSize.Max)
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Left thumbnail image
-            Box(
-                modifier = Modifier
-                    .size(110.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFF1F5F9)),
-                contentAlignment = Alignment.Center
+        Box(Modifier.fillMaxSize().padding(14.dp)) {
+            Text(
+                text = "$count",
+                fontSize = 30.sp,
+                fontWeight = FontWeight.Black,
+                color = textColor,
+                modifier = Modifier.align(Alignment.TopStart)
+            )
+            Box(modifier = Modifier.align(Alignment.TopEnd)) {
+                when (iconType) {
+                    "warning" -> AlertTriangleIcon(textColor.copy(alpha = 0.18f), Modifier.size(30.dp))
+                    "bell" -> AlertBellDrawIcon(textColor.copy(alpha = 0.18f), Modifier.size(30.dp))
+                    "info" -> AlertInfoIcon(textColor.copy(alpha = 0.18f), Modifier.size(30.dp))
+                }
+            }
+            Row(
+                modifier = Modifier.align(Alignment.BottomStart),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                val model = if (!alert.imageUrl.isNullOrBlank()) alert.imageUrl else com.nagarrakshak.R.drawable.placeholder_hazard
-                coil.compose.AsyncImage(
-                    model = model,
-                    contentDescription = "Alert Photo",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                Box(Modifier.size(6.dp).background(dotColor, CircleShape))
+                Text(
+                    text = label,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = textColor.copy(alpha = 0.8f),
+                    letterSpacing = 1.sp
                 )
             }
+        }
+    }
+}
 
-            Spacer(modifier = Modifier.width(12.dp))
-
-            // Details column spanning remaining space
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Top Content Details
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxWidth()
+// ====================================================
+// Severity Tab
+// ====================================================
+@Composable
+fun SeverityTab(text: String, count: Int?, isSelected: Boolean, color: Color?, onClick: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .background(if (isSelected) Color(0xFF1E293B) else Color.Transparent, RoundedCornerShape(10.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 15.dp, vertical = 8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = text,
+                fontSize = 13.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = if (isSelected) Color.White else Color(0xFF6B7280)
+            )
+            if (count != null && count > 0) {
+                Box(
+                    modifier = Modifier
+                        .size(18.dp)
+                        .background(color ?: if (isSelected) Color(0xFF475569) else Color(0xFFE5E7EB), CircleShape),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .background(severityBg, shape = RoundedCornerShape(6.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = when (alert.severity) {
-                                    Severity.HIGH -> "High"
-                                    Severity.MEDIUM -> "Medium"
-                                    Severity.LOW -> "Low"
-                                },
-                                color = severityColor,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp
-                            )
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .background(Color(0xFFDCFCE7), shape = RoundedCornerShape(6.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = distanceStr,
-                                color = Color(0xFF15803D),
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 9.sp
-                            )
-                        }
-                    }
-
                     Text(
-                        text = alert.title,
+                        text = "$count",
+                        fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = Color(0xFF0F172A),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("📍", fontSize = 10.sp)
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text(
-                            text = alert.locationName,
-                            fontSize = 11.sp,
-                            color = Color(0xFF64748B),
-                            fontWeight = FontWeight.Medium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                        color = Color.White,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        lineHeight = 9.sp,
+                        style = androidx.compose.ui.text.TextStyle(
+                            platformStyle = androidx.compose.ui.text.PlatformTextStyle(
+                                includeFontPadding = false
+                            )
                         )
-                    }
-
-                    Text(
-                        text = if (alert.description.isBlank()) "No description provided." else alert.description,
-                        fontSize = 12.sp,
-                        color = Color(0xFF64748B),
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
                     )
                 }
+            }
+        }
+    }
+}
 
-                // Bottom Stats Row (aligned inside the same row next to image)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CommentIcon(color = Color(0xFF64748B))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "$commentCount",
-                                fontSize = 11.sp,
-                                color = Color(0xFF64748B),
-                                fontWeight = FontWeight.Bold
-                            )
+// ====================================================
+// Redesigned Alert Card
+// ====================================================
+@Composable
+fun AlertCardRedesigned(alert: HazardReport, onClick: () -> Unit) {
+    val severityColor = when (alert.severity) { Severity.HIGH -> Color(0xFFDC2626); Severity.MEDIUM -> Color(0xFFD97706); Severity.LOW -> Color(0xFF16A34A) }
+    val severityBg = when (alert.severity) { Severity.HIGH -> Color(0xFFFEE2E2); Severity.MEDIUM -> Color(0xFFFEF3C7); Severity.LOW -> Color(0xFFDCFCE7) }
+    val severityLabel = when (alert.severity) { Severity.HIGH -> "High Risk"; Severity.MEDIUM -> "Medium Risk"; Severity.LOW -> "Low Risk" }
+    val severityBadgeText = when (alert.severity) { Severity.HIGH -> "HIGH"; Severity.MEDIUM -> "MED"; Severity.LOW -> "LOW" }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column {
+            Row(Modifier.fillMaxWidth().padding(16.dp)) {
+                // Image thumbnail with severity badge overlay
+                Box(Modifier.size(width = 96.dp, height = 96.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFF1F5F9))) {
+                    val model = if (!alert.imageUrl.isNullOrBlank()) alert.imageUrl else com.nagarrakshak.R.drawable.placeholder_hazard
+                    coil.compose.AsyncImage(model = model, contentDescription = "Alert Photo", modifier = Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                    Box(Modifier.align(Alignment.BottomStart).padding(6.dp).background(severityColor, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text(text = severityBadgeText, color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(Modifier.width(16.dp))
+
+                Column(Modifier.weight(1f)) {
+                    // Title + time + menu
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(8.dp).background(severityColor, CircleShape))
+                                Spacer(Modifier.width(6.dp))
+                                Text(alert.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF0F172A), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text("📍", fontSize = 10.sp)
+                                Spacer(Modifier.width(3.dp))
+                                Text(alert.locationName, fontSize = 11.sp, color = Color(0xFF64748B), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                         }
-
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            VerificationIcon(color = Color(0xFF64748B))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "${alert.verificationCount}",
-                                fontSize = 11.sp,
-                                color = Color(0xFF64748B),
-                                fontWeight = FontWeight.Bold
-                            )
+                        
+                        Row(modifier = Modifier.padding(start = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(alert.reportTime, fontSize = 10.sp, color = Color(0xFF94A3B8))
+                            Icon(Icons.Default.MoreVert, "Menu", tint = Color(0xFF94A3B8), modifier = Modifier.size(16.dp))
                         }
                     }
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    Spacer(Modifier.height(6.dp))
+                    Text(if (alert.description.isBlank()) "No description provided." else alert.description, fontSize = 12.sp, color = Color(0xFF475569), maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 16.sp)
+
+                    Spacer(Modifier.height(10.dp))
+
+                    // Category chips
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        AlertChip(severityLabel, "⚠️", severityBg, severityColor)
+                        AlertChip(alert.category, bgColor = Color(0xFFF1F5F9), textColor = Color(0xFF475569))
+                        AlertChip("📍 ${String.format("%.1f", 0.1 + (kotlin.math.abs(alert.id.hashCode()) % 50) / 10.0)} km", bgColor = Color(0xFFF1F5F9), textColor = Color(0xFF475569))
+                        AlertChip("Citizen Report", bgColor = Color(0xFFF1F5F9), textColor = Color(0xFF475569))
+                    }
+                }
+            }
+
+            // Bottom action row
+            HorizontalDivider(color = Color(0xFFF1F5F9), thickness = 1.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Info badges
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.background(Color(0xFFF8FAFC), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("👍", fontSize = 11.sp)
+                            Spacer(Modifier.width(4.dp))
+                            Text("${alert.verificationCount}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
+                        }
+                    }
+                    Box(Modifier.background(Color(0xFFF8FAFC), RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("💬", fontSize = 11.sp)
+                            Spacer(Modifier.width(4.dp))
+                            Text("${2 + (kotlin.math.abs(alert.id.hashCode()) % 8)}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
+                        }
+                    }
+                }
+                
+                // Interactive buttons
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFFEFF6FF))
+                            .clickable { }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
-                        Text(
-                            text = alert.reportTime,
-                            fontSize = 11.sp,
-                            color = Color(0xFF94A3B8)
-                        )
-                        BookmarkIcon(color = Color(0xFF64748B))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("🧭", fontSize = 11.sp)
+                            Text("Navigate", fontSize = 11.sp, color = Color(0xFF1B4FD8), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF1B4FD8))
+                            .clickable { onClick() }
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Details", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                            Text("→", fontSize = 11.sp, color = Color.White)
+                        }
                     }
                 }
             }
@@ -550,214 +499,151 @@ fun AlertPageCard(
 }
 
 @Composable
+fun AlertChip(text: String, icon: String? = null, bgColor: Color = Color(0xFFF1F5F9), textColor: Color = Color(0xFF475569)) {
+    Box(Modifier.background(bgColor, RoundedCornerShape(12.dp)).padding(horizontal = 7.dp, vertical = 3.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (icon != null) Text(icon, fontSize = 9.sp)
+            Text(text, fontSize = 10.sp, color = textColor, fontWeight = FontWeight.Medium)
+        }
+    }
+}
+
+// ====================================================
+// Custom Icons
+// ====================================================
+@Composable
+fun AlertsFilterIcon(modifier: Modifier = Modifier, color: Color = Color(0xFF374151)) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val sw = 2f.dp.toPx(); val w = size.width; val h = size.height
+        drawLine(color, Offset(w * 0.1f, h * 0.25f), Offset(w * 0.9f, h * 0.25f), sw, StrokeCap.Round)
+        drawLine(color, Offset(w * 0.25f, h * 0.5f), Offset(w * 0.75f, h * 0.5f), sw, StrokeCap.Round)
+        drawLine(color, Offset(w * 0.38f, h * 0.75f), Offset(w * 0.62f, h * 0.75f), sw, StrokeCap.Round)
+    }
+}
+
+@Composable
+fun AlertTriangleIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width; val h = size.height; val sw = 1.8f.dp.toPx()
+        val path = Path().apply { moveTo(w * 0.5f, h * 0.15f); lineTo(w * 0.9f, h * 0.85f); lineTo(w * 0.1f, h * 0.85f); close() }
+        drawPath(path, color, style = Stroke(sw, join = StrokeJoin.Round))
+        drawLine(color, Offset(w * 0.5f, h * 0.4f), Offset(w * 0.5f, h * 0.6f), sw, StrokeCap.Round)
+        drawCircle(color, 1.5f.dp.toPx(), Offset(w * 0.5f, h * 0.72f))
+    }
+}
+
+@Composable
+fun AlertBellDrawIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width; val h = size.height; val sw = 1.8f.dp.toPx()
+        val path = Path().apply {
+            moveTo(w * 0.5f, h * 0.1f); quadraticBezierTo(w * 0.75f, h * 0.2f, w * 0.75f, h * 0.55f)
+            lineTo(w * 0.85f, h * 0.7f); lineTo(w * 0.15f, h * 0.7f); lineTo(w * 0.25f, h * 0.55f)
+            quadraticBezierTo(w * 0.25f, h * 0.2f, w * 0.5f, h * 0.1f); close()
+        }
+        drawPath(path, color, style = Stroke(sw))
+        drawArc(color, 0f, 180f, false, Offset(w * 0.38f, h * 0.72f), androidx.compose.ui.geometry.Size(w * 0.24f, h * 0.16f))
+    }
+}
+
+@Composable
+fun AlertInfoIcon(color: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier) {
+        val w = size.width; val h = size.height; val sw = 1.8f.dp.toPx()
+        drawCircle(color, (w / 2f) - sw, style = Stroke(sw))
+        drawCircle(color, 1.5f.dp.toPx(), Offset(w * 0.5f, h * 0.32f))
+        drawLine(color, Offset(w * 0.5f, h * 0.44f), Offset(w * 0.5f, h * 0.7f), sw, StrokeCap.Round)
+    }
+}
+
+// Existing icons kept for other screens
+@Composable
 fun ShieldIcon(modifier: Modifier = Modifier, color: Color = Color.White) {
     Canvas(modifier = modifier.size(20.dp)) {
-        val w = size.width
-        val h = size.height
+        val w = size.width; val h = size.height
         val path = Path().apply {
-            moveTo(w * 0.5f, h * 0.1f)
-            quadraticBezierTo(w * 0.8f, h * 0.1f, w * 0.85f, h * 0.15f)
-            lineTo(w * 0.85f, h * 0.5f)
-            quadraticBezierTo(w * 0.85f, h * 0.8f, w * 0.5f, h * 0.95f)
-            quadraticBezierTo(w * 0.15f, h * 0.8f, w * 0.15f, h * 0.5f)
-            lineTo(w * 0.15f, h * 0.15f)
-            quadraticBezierTo(w * 0.2f, h * 0.1f, w * 0.5f, h * 0.1f)
-            close()
+            moveTo(w * 0.5f, h * 0.1f); quadraticBezierTo(w * 0.8f, h * 0.1f, w * 0.85f, h * 0.15f)
+            lineTo(w * 0.85f, h * 0.5f); quadraticBezierTo(w * 0.85f, h * 0.8f, w * 0.5f, h * 0.95f)
+            quadraticBezierTo(w * 0.15f, h * 0.8f, w * 0.15f, h * 0.5f); lineTo(w * 0.15f, h * 0.15f)
+            quadraticBezierTo(w * 0.2f, h * 0.1f, w * 0.5f, h * 0.1f); close()
         }
-        drawPath(
-            path = path,
-            color = color
-        )
+        drawPath(path, color)
     }
 }
 
 @Composable
 fun FilterIcon(modifier: Modifier = Modifier, color: Color = Color(0xFF16A34A)) {
     Canvas(modifier = modifier.size(12.dp)) {
-        val strokeWidth = 1.5.dp.toPx()
-        val w = size.width
-        val h = size.height
-        
-        val path = Path().apply {
-            moveTo(0f, 0f)
-            lineTo(w, 0f)
-            lineTo(w * 0.6f, h * 0.5f)
-            lineTo(w * 0.6f, h * 0.9f)
-            lineTo(w * 0.4f, h * 0.7f)
-            lineTo(w * 0.4f, h * 0.5f)
-            close()
-        }
-        drawPath(
-            path = path,
-            color = color,
-            style = Stroke(
-                width = strokeWidth,
-                join = StrokeJoin.Round,
-                cap = StrokeCap.Round
-            )
-        )
+        val sw = 1.5.dp.toPx(); val w = size.width; val h = size.height
+        val path = Path().apply { moveTo(0f, 0f); lineTo(w, 0f); lineTo(w * 0.6f, h * 0.5f); lineTo(w * 0.6f, h * 0.9f); lineTo(w * 0.4f, h * 0.7f); lineTo(w * 0.4f, h * 0.5f); close() }
+        drawPath(path, color, style = Stroke(sw, join = StrokeJoin.Round, cap = StrokeCap.Round))
     }
 }
 
 @Composable
 fun CommentIcon(modifier: Modifier = Modifier, color: Color = Color(0xFF64748B)) {
     Canvas(modifier = modifier.size(14.dp)) {
-        val strokeWidth = 1.2.dp.toPx()
-        val w = size.width
-        val h = size.height
-        
-        val rect = RoundRect(
-            left = 1.dp.toPx(),
-            top = 1.dp.toPx(),
-            right = w - 1.dp.toPx(),
-            bottom = h - 4.dp.toPx(),
-            cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
-        )
-        val path = Path().apply {
-            addRoundRect(rect)
-            moveTo(3.dp.toPx(), h - 4.dp.toPx())
-            lineTo(1.dp.toPx(), h - 1.dp.toPx())
-            lineTo(6.dp.toPx(), h - 4.dp.toPx())
-        }
-        drawPath(
-            path = path,
-            color = color,
-            style = Stroke(width = strokeWidth)
-        )
+        val sw = 1.2.dp.toPx(); val w = size.width; val h = size.height
+        val rect = RoundRect(1.dp.toPx(), 1.dp.toPx(), w - 1.dp.toPx(), h - 4.dp.toPx(), CornerRadius(2.dp.toPx()))
+        val path = Path().apply { addRoundRect(rect); moveTo(3.dp.toPx(), h - 4.dp.toPx()); lineTo(1.dp.toPx(), h - 1.dp.toPx()); lineTo(6.dp.toPx(), h - 4.dp.toPx()) }
+        drawPath(path, color, style = Stroke(sw))
     }
 }
 
 @Composable
 fun VerificationIcon(modifier: Modifier = Modifier, color: Color = Color(0xFF64748B)) {
     Canvas(modifier = modifier.size(14.dp)) {
-        val strokeWidth = 1.2.dp.toPx()
-        val w = size.width
-        val h = size.height
-        
-        drawCircle(
-            color = color,
-            radius = (w / 2f) - strokeWidth,
-            style = Stroke(width = strokeWidth)
-        )
-        
-        val checkPath = Path().apply {
-            moveTo(w * 0.3f, h * 0.5f)
-            lineTo(w * 0.45f, h * 0.65f)
-            lineTo(w * 0.7f, h * 0.35f)
-        }
-        drawPath(
-            path = checkPath,
-            color = color,
-            style = Stroke(
-                width = strokeWidth,
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round
-            )
-        )
+        val sw = 1.2.dp.toPx(); val w = size.width; val h = size.height
+        drawCircle(color, (w / 2f) - sw, style = Stroke(sw))
+        val p = Path().apply { moveTo(w * 0.3f, h * 0.5f); lineTo(w * 0.45f, h * 0.65f); lineTo(w * 0.7f, h * 0.35f) }
+        drawPath(p, color, style = Stroke(sw, cap = StrokeCap.Round, join = StrokeJoin.Round))
     }
 }
 
 @Composable
 fun BookmarkIcon(modifier: Modifier = Modifier, color: Color = Color(0xFF64748B)) {
     Canvas(modifier = modifier.size(14.dp)) {
-        val strokeWidth = 1.2.dp.toPx()
-        val w = size.width
-        val h = size.height
-        
-        val path = Path().apply {
-            moveTo(2.dp.toPx(), 1.dp.toPx())
-            lineTo(w - 2.dp.toPx(), 1.dp.toPx())
-            lineTo(w - 2.dp.toPx(), h - 1.dp.toPx())
-            lineTo(w / 2f, h - 5.dp.toPx())
-            lineTo(2.dp.toPx(), h - 1.dp.toPx())
-            close()
-        }
-        drawPath(
-            path = path,
-            color = color,
-            style = Stroke(
-                width = strokeWidth,
-                join = StrokeJoin.Round
-            )
-        )
+        val sw = 1.2.dp.toPx(); val w = size.width; val h = size.height
+        val path = Path().apply { moveTo(2.dp.toPx(), 1.dp.toPx()); lineTo(w - 2.dp.toPx(), 1.dp.toPx()); lineTo(w - 2.dp.toPx(), h - 1.dp.toPx()); lineTo(w / 2f, h - 5.dp.toPx()); lineTo(2.dp.toPx(), h - 1.dp.toPx()); close() }
+        drawPath(path, color, style = Stroke(sw, join = StrokeJoin.Round))
     }
 }
 
 @Composable
 fun MicIcon(modifier: Modifier = Modifier, color: Color = Color(0xFF0F172A)) {
     Canvas(modifier = modifier.size(16.dp)) {
-        val strokeWidth = 1.5.dp.toPx()
-        val w = size.width
-        val h = size.height
-        
-        val bodyRect = Rect(
-            left = w * 0.35f,
-            top = h * 0.15f,
-            right = w * 0.65f,
-            bottom = h * 0.65f
-        )
-        val bodyPath = Path().apply {
-            addRoundRect(
-                RoundRect(
-                    rect = bodyRect,
-                    cornerRadius = CornerRadius(w * 0.15f, w * 0.15f)
-                )
-            )
-        }
-        drawPath(
-            path = bodyPath,
-            color = color,
-            style = Stroke(width = strokeWidth)
-        )
-        
-        val cradlePath = Path().apply {
-            moveTo(w * 0.25f, h * 0.45f)
-            lineTo(w * 0.25f, h * 0.65f)
-            quadraticBezierTo(w * 0.25f, h * 0.8f, w * 0.5f, h * 0.8f)
-            quadraticBezierTo(w * 0.75f, h * 0.8f, w * 0.75f, h * 0.65f)
-            lineTo(w * 0.75f, h * 0.45f)
-        }
-        drawPath(
-            path = cradlePath,
-            color = color,
-            style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
-        )
-        
-        drawLine(
-            color = color,
-            start = Offset(w * 0.5f, h * 0.8f),
-            end = Offset(w * 0.5f, h * 0.95f),
-            strokeWidth = strokeWidth
-        )
-        drawLine(
-            color = color,
-            start = Offset(w * 0.35f, h * 0.95f),
-            end = Offset(w * 0.65f, h * 0.95f),
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round
-        )
+        val sw = 1.5.dp.toPx(); val w = size.width; val h = size.height
+        val bodyRect = Rect(w * 0.35f, h * 0.15f, w * 0.65f, h * 0.65f)
+        drawPath(Path().apply { addRoundRect(RoundRect(bodyRect, CornerRadius(w * 0.15f))) }, color, style = Stroke(sw))
+        val cp = Path().apply { moveTo(w * 0.25f, h * 0.45f); lineTo(w * 0.25f, h * 0.65f); quadraticBezierTo(w * 0.25f, h * 0.8f, w * 0.5f, h * 0.8f); quadraticBezierTo(w * 0.75f, h * 0.8f, w * 0.75f, h * 0.65f); lineTo(w * 0.75f, h * 0.45f) }
+        drawPath(cp, color, style = Stroke(sw, cap = StrokeCap.Round))
+        drawLine(color, Offset(w * 0.5f, h * 0.8f), Offset(w * 0.5f, h * 0.95f), sw)
+        drawLine(color, Offset(w * 0.35f, h * 0.95f), Offset(w * 0.65f, h * 0.95f), sw, StrokeCap.Round)
     }
 }
 
 @Composable
 fun ScanIconDraw() {
     Canvas(modifier = Modifier.size(16.dp)) {
-        val stroke = 1.5.dp.toPx()
-        val len = 4.dp.toPx()
-        val color = Color(0xFF475569)
-        
-        drawLine(color, Offset(0f, 0f), Offset(len, 0f), strokeWidth = stroke)
-        drawLine(color, Offset(0f, 0f), Offset(0f, len), strokeWidth = stroke)
-        
-        drawLine(color, Offset(size.width, 0f), Offset(size.width - len, 0f), strokeWidth = stroke)
-        drawLine(color, Offset(size.width, 0f), Offset(size.width, len), strokeWidth = stroke)
-        
-        drawLine(color, Offset(0f, size.height), Offset(len, size.height), strokeWidth = stroke)
-        drawLine(color, Offset(0f, size.height), Offset(0f, size.height - len), strokeWidth = stroke)
-        
-        drawLine(color, Offset(size.width, size.height), Offset(size.width - len, size.height), strokeWidth = stroke)
-        drawLine(color, Offset(size.width, size.height), Offset(size.width, size.height - len), strokeWidth = stroke)
-        
-        drawRect(color, Offset(size.width * 0.35f, size.height * 0.35f), size * 0.3f)
+        val s = 1.5.dp.toPx(); val l = 4.dp.toPx(); val c = Color(0xFF475569)
+        drawLine(c, Offset(0f, 0f), Offset(l, 0f), s); drawLine(c, Offset(0f, 0f), Offset(0f, l), s)
+        drawLine(c, Offset(size.width, 0f), Offset(size.width - l, 0f), s); drawLine(c, Offset(size.width, 0f), Offset(size.width, l), s)
+        drawLine(c, Offset(0f, size.height), Offset(l, size.height), s); drawLine(c, Offset(0f, size.height), Offset(0f, size.height - l), s)
+        drawLine(c, Offset(size.width, size.height), Offset(size.width - l, size.height), s); drawLine(c, Offset(size.width, size.height), Offset(size.width, size.height - l), s)
+        drawRect(c, Offset(size.width * 0.35f, size.height * 0.35f), size * 0.3f)
+    }
+}
+
+@Composable
+fun AlertPageCard(alert: HazardReport, onClick: () -> Unit) { AlertCardRedesigned(alert, onClick) }
+
+@Composable
+fun FilterPill(text: String, color: Color? = null, isSelected: Boolean, onClick: () -> Unit) {
+    val ac = color ?: Color(0xFF16A34A)
+    Box(Modifier.background(if (isSelected) ac else Color.White, CircleShape).border(1.dp, if (isSelected) ac else Color(0xFFE2E8F0), CircleShape).clickable { onClick() }.padding(horizontal = 12.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (color != null) Box(Modifier.size(6.dp).background(if (isSelected) Color.White else color, CircleShape))
+            Text(text, color = if (isSelected) Color.White else (color ?: Color(0xFF475569)), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        }
     }
 }

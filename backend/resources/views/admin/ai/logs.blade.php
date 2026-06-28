@@ -53,7 +53,8 @@
                         </tr>
                     @else
                         @foreach($logs as $log)
-                        <tr style="cursor: pointer;" onclick="window.location='{{ route('admin.cases.show', $log->hazard_id) }}'">
+                        <tr style="{{ $log->hazard_id ? 'cursor: pointer;' : '' }}"
+                            @if($log->hazard_id) onclick="window.location='{{ route('admin.cases.show', $log->hazard_id) }}'" @endif>
                             <td>#{{ $log->hazard_id ?: 'N/A' }}</td>
                             <td class="fw-semibold">{{ $log->category ?: 'N/A' }}</td>
                             <td>

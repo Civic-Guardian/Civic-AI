@@ -20,10 +20,11 @@
                         <th>Avatar</th>
                         <th>Name</th>
                         <th>Email</th>
-                        <th>Reports Submitted</th>
+                        <th>Reputation</th>
+                        <th>Badge Level</th>
+                        <th>Reports</th>
                         <th>Verifications</th>
                         <th>Status</th>
-                        <th>Last Login</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -37,6 +38,14 @@
                         </td>
                         <td class="fw-semibold text-dark">{{ $user->name }}</td>
                         <td>{{ $user->email }}</td>
+                        <td>
+                            <span class="fw-bold text-warning" style="font-size: 0.85rem;"><i class="fa-solid fa-star me-1"></i>{{ number_format($user->reputation_score ?? 0) }} pts</span>
+                        </td>
+                        <td>
+                            <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 px-2 py-1" style="font-size: 0.75rem;">
+                                <i class="fa-solid fa-award me-1"></i>{{ $user->badge_level ?? 'Contributor' }}
+                            </span>
+                        </td>
                         <td>{{ $user->reports_submitted }}</td>
                         <td>{{ $user->reports_verified }}</td>
                         <td>

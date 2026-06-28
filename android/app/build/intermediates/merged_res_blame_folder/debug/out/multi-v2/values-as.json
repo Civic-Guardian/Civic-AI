@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.nagarrakshak.app-mergeDebugResources-61:/values-as/values-as.xml",
+            "outputFile": "com.nagarrakshak.app-mergeDebugResources-62:/values-as/values-as.xml",
             "map": [
                 {
                     "source": "C:\\Users\\jkson\\.gradle\\caches\\transforms-3\\ce58382c4c1d081c5c0acb0a1d319d9c\\transformed\\play-services-base-18.3.0\\res\\values-as\\values.xml",

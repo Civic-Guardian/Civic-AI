@@ -30,9 +30,28 @@
                         <input type="number" name="critical_threshold" class="form-control form-control-sm" value="{{ $settings['critical_threshold'] ?? '10' }}" required>
                     </div>
 
-                    <div class="mb-4 form-check form-switch">
+                    <div class="mb-3 form-check form-switch">
                         <input class="form-check-input" type="checkbox" name="auto_escalation" id="autoEscalate" {{ ($settings['auto_escalation'] ?? '1') === '1' ? 'checked' : '' }}>
                         <label class="form-check-label text-muted small" for="autoEscalate">Auto Escalate to Ward officers</label>
+                    </div>
+
+                    <hr class="my-3">
+                    <h6 class="fw-semibold mb-3"><i class="fa-solid fa-toggle-on text-green"></i> Feature Toggles</h6>
+
+                    <div class="mb-3 form-check form-switch">
+                        <input class="form-check-input" type="checkbox" name="gemini_analysis_enabled" id="geminiEnabled" {{ ($settings['gemini_analysis_enabled'] ?? '1') === '1' ? 'checked' : '' }}>
+                        <label class="form-check-label text-muted small" for="geminiEnabled">
+                            <i class="fa-solid fa-brain"></i> Enable AI Analysis (Gemini)
+                        </label>
+                        <div class="form-text" style="font-size: 0.68rem;">When disabled, image analysis will be skipped and reports will use manual categorization only.</div>
+                    </div>
+
+                    <div class="mb-4 form-check form-switch">
+                        <input class="form-check-input" type="checkbox" name="petition_enabled" id="petitionEnabled" {{ ($settings['petition_enabled'] ?? '1') === '1' ? 'checked' : '' }}>
+                        <label class="form-check-label text-muted small" for="petitionEnabled">
+                            <i class="fa-solid fa-file-signature"></i> Enable Petition Generation
+                        </label>
+                        <div class="form-text" style="font-size: 0.68rem;">When disabled, the petition draft feature will be hidden from citizens.</div>
                     </div>
 
                     <button type="submit" class="btn btn-sm btn-success w-100 rounded-3 py-2 fw-semibold">Save Alert Settings</button>
@@ -66,7 +85,74 @@
                         <div class="form-text" style="font-size: 0.7rem;">Used application-wide for map rendering and geocoding.</div>
                     </div>
 
+                    <div class="mb-3">
+                        <label class="form-label text-muted small"><i class="fa-solid fa-brain text-green"></i> Google Gemini API Key</label>
+                        <input type="password" name="gemini_api_key" class="form-control form-control-sm" value="{{ $settings['gemini_api_key'] ?? '' }}" placeholder="AIzaSy...">
+                        <div class="form-text" style="font-size: 0.7rem;">Used for dynamic image classification and petition drafting.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label text-muted small"><i class="fa-solid fa-bucket text-green"></i> GCS Bucket Name</label>
+                        <input type="text" name="gcs_bucket_name" class="form-control form-control-sm" value="{{ $settings['gcs_bucket_name'] ?? '' }}" placeholder="my-gcs-bucket">
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label text-muted small"><i class="fa-solid fa-key text-green"></i> GCS Service Account Key (JSON)</label>
+                        <textarea name="gcs_key_file" class="form-control form-control-sm" rows="4" placeholder='{"type": "service_account", ...}'>{{ $settings['gcs_key_file'] ?? '' }}</textarea>
+                        <div class="form-text" style="font-size: 0.7rem;">Paste the contents of your Google Cloud Service Account credentials JSON file.</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label text-muted small"><i class="fa-solid fa-bell text-green"></i> Firebase Project ID</label>
+                        <input type="text" name="fcm_project_id" class="form-control form-control-sm" value="{{ $settings['fcm_project_id'] ?? '' }}" placeholder="my-firebase-project">
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label text-muted small"><i class="fa-solid fa-key text-green"></i> Firebase Service Account Key (JSON)</label>
+                        <textarea name="fcm_service_account" class="form-control form-control-sm" rows="4" placeholder='{"type": "service_account", ...}'>{{ $settings['fcm_service_account'] ?? '' }}</textarea>
+                        <div class="form-text" style="font-size: 0.7rem;">Paste the contents of your Google Firebase Service Account credentials JSON file.</div>
+                    </div>
+
                     <button type="submit" class="btn btn-sm btn-success w-100 rounded-3 py-2 fw-semibold">Save Customizations</button>
+                </form>
+            </div>
+
+            <!-- Maintenance & Updates settings -->
+            <div class="card card-custom p-4 mt-4">
+                <h5 class="fw-bold mb-4"><i class="fa-solid fa-screwdriver-wrench text-green"></i> Maintenance & App Updates</h5>
+                
+                <form action="{{ route('admin.settings.maintenance') }}" method="POST">
+                    @csrf
+                    <div class="mb-3 form-check form-switch">
+                        <input class="form-check-input" type="checkbox" name="maintenance_mode" id="maintenanceMode" {{ ($settings['maintenance_mode'] ?? '0') === '1' ? 'checked' : '' }}>
+                        <label class="form-check-label text-muted small" for="maintenanceMode">
+                            <strong>Enable Maintenance Mode</strong>
+                        </label>
+                        <div class="form-text" style="font-size: 0.68rem;">When enabled, the mobile app will show an "Under Maintenance" screen and block users from accessing the app.</div>
+                    </div>
+
+                    <hr class="my-3">
+
+                    <div class="mb-3">
+                        <label class="form-label text-muted small">Required App Version</label>
+                        <input type="text" name="app_version" class="form-control form-control-sm" value="{{ $settings['app_version'] ?? '1.2.0' }}" placeholder="e.g. 1.3.0" required>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label text-muted small">APK Download Link</label>
+                        <input type="url" name="app_update_url" class="form-control form-control-sm" value="{{ $settings['app_update_url'] ?? '' }}" placeholder="https://example.com/downloads/nagarrakshak-v1.3.0.apk">
+                        <div class="form-text" style="font-size: 0.68rem;">Internal URL to download the new version's APK archive.</div>
+                    </div>
+
+                    <div class="mb-4 form-check form-switch">
+                        <input class="form-check-input" type="checkbox" name="app_update_mandatory" id="updateMandatory" {{ ($settings['app_update_mandatory'] ?? '0') === '1' ? 'checked' : '' }}>
+                        <label class="form-check-label text-muted small" for="updateMandatory">
+                            <strong>Make Update Mandatory</strong>
+                        </label>
+                        <div class="form-text" style="font-size: 0.68rem;">If checked, users running an older version will be forced to update to the required version inside the app before proceeding.</div>
+                    </div>
+
+                    <button type="submit" class="btn btn-sm btn-success w-100 rounded-3 py-2 fw-semibold">Save Maintenance Settings</button>
                 </form>
             </div>
         </div>

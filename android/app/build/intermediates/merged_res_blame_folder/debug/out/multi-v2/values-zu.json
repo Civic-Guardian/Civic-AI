@@ -1,7 +1,7 @@
 {
     "logs": [
         {
-            "outputFile": "com.nagarrakshak.app-mergeDebugResources-61:/values-zu/values-zu.xml",
+            "outputFile": "com.nagarrakshak.app-mergeDebugResources-62:/values-zu/values-zu.xml",
             "map": [
                 {
                     "source": "C:\\Users\\jkson\\.gradle\\caches\\transforms-3\\1b24bf249e34cafeb40f7a69c34306c0\\transformed\\ui-release\\res\\values-zu\\values-zu.xml",

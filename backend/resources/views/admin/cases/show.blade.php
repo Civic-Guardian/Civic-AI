@@ -34,7 +34,11 @@
                 <!-- Image container -->
                 <div class="rounded-4 mb-4 overflow-hidden border bg-light d-flex align-items-center justify-content-center" style="height: 350px; position: relative;">
                     @if($hazard->image_path)
-                        <img src="{{ asset('storage/' . $hazard->image_path) }}" alt="Hazard Image" style="width: 100%; height: 100%; object-fit: cover;">
+                        @if(Str::startsWith($hazard->image_path, ['http://', 'https://']))
+                            <img src="{{ $hazard->image_path }}" alt="Hazard Image" style="width: 100%; height: 100%; object-fit: cover;">
+                        @else
+                            <img src="{{ asset('storage/' . $hazard->image_path) }}" alt="Hazard Image" style="width: 100%; height: 100%; object-fit: cover;">
+                        @endif
                     @else
                         <div class="text-center text-muted">
                             <i class="fa-regular fa-image fa-4x mb-3"></i>

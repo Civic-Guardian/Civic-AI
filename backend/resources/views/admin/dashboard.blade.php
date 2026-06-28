@@ -159,22 +159,35 @@
 @endsection
 
 @section('scripts')
+<script src="https://maps.googleapis.com/maps/api/js?key={{ \App\Services\SettingsService::get('google_maps_api_key') }}"></script>
 <script>
-    // Initialize Leaflet Map centered on Kota
-    var map = L.map('liveMap').setView([25.18, 75.83], 13);
-
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-    }).addTo(map);
-
+    var map;
+    var markers = [];
     var hazards = {!! json_encode($hazards) !!};
-    var markersLayer = L.layerGroup().addTo(map);
+
+    function initMap() {
+        map = new google.maps.Map(document.getElementById('liveMap'), {
+            center: { lat: 25.18, lng: 75.83 },
+            zoom: 13,
+            styles: [
+                {
+                    "featureType": "poi",
+                    "elementType": "labels",
+                    "stylers": [{ "visibility": "off" }]
+                }
+            ]
+        });
+
+        drawMarkers();
+    }
 
     function drawMarkers(filterSeverity = 'All') {
-        markersLayer.clearLayers();
+        markers.forEach(function(marker) {
+            marker.setMap(null);
+        });
+        markers = [];
         
         hazards.forEach(function(hazard) {
-            // High Risk maps to Orange/Red, Critical maps to Red
             if (filterSeverity === 'All' || hazard.severity === filterSeverity) {
                 var markerColor = '#10B981'; // Low (Green)
                 if (hazard.severity === 'Critical') {
@@ -185,30 +198,46 @@
                     markerColor = '#FBBF24'; // Yellow
                 }
 
-                var marker = L.circleMarker([hazard.latitude, hazard.longitude], {
-                    radius: 10,
-                    fillColor: markerColor,
-                    color: '#ffffff',
-                    weight: 2,
-                    opacity: 1,
-                    fillOpacity: 0.9
+                var marker = new google.maps.Marker({
+                    position: { lat: parseFloat(hazard.latitude), lng: parseFloat(hazard.longitude) },
+                    map: map,
+                    title: hazard.category,
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        fillColor: markerColor,
+                        fillOpacity: 0.9,
+                        strokeColor: '#ffffff',
+                        strokeWeight: 2,
+                        scale: 8
+                    }
                 });
 
                 var detailUrl = "{{ route('admin.cases.show', ':id') }}".replace(':id', hazard.id);
-                var popupContent = '<div style="font-family: sans-serif; min-width: 150px;">' +
-                                   '<strong style="font-size:0.9rem;">' + hazard.category + '</strong><br>' +
+                var popupContent = '<div style="font-family: sans-serif; min-width: 150px; padding: 4px;">' +
+                                   '<strong style="font-size:0.9rem; color:#111827;">' + hazard.category + '</strong><br>' +
                                    '<span class="badge mt-1 mb-2" style="background-color:' + markerColor + '; color:#fff;">' + hazard.severity + '</span><br>' +
-                                   '<small class="text-muted d-block mb-2">' + hazard.location_name + '</small>' +
+                                   '<small style="color:#6B7280;" class="d-block mb-2">' + hazard.location_name + '</small>' +
                                    '<a href="' + detailUrl + '" class="btn btn-sm btn-success text-white w-100 py-1" style="font-size:0.75rem; font-weight:600;">View Details</a>' +
                                    '</div>';
                 
-                marker.bindPopup(popupContent);
-                markersLayer.addLayer(marker);
+                var infowindow = new google.maps.InfoWindow({
+                    content: popupContent
+                });
+
+                marker.addListener('click', function() {
+                    infowindow.open(map, marker);
+                });
+
+                markers.push(marker);
             }
         });
     }
 
-    drawMarkers();
+    $(document).ready(function() {
+        if (typeof google !== 'undefined') {
+            initMap();
+        }
+    });
 
     $('#mapSeverityFilter').change(function() {
         drawMarkers($(this).val());

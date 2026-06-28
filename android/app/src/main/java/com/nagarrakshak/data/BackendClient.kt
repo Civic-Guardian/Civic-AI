@@ -1,8 +1,11 @@
 package com.nagarrakshak.data
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.util.Log
 import com.google.android.gms.maps.model.LatLng
 import com.nagarrakshak.data.models.HazardReport
+import com.nagarrakshak.data.models.NotificationItem
 import com.nagarrakshak.data.models.Severity
 import com.nagarrakshak.data.models.VerificationStatus
 import kotlinx.coroutines.Dispatchers
@@ -17,20 +20,90 @@ import java.net.URL
 
 object BackendClient {
     private const val TAG = "BackendClient"
-    // Use 10.0.2.2 to point to host machine's localhost from Android Emulator
-    private const val BASE_URL = "http://10.193.173.93:8000/api"
+    private const val BASE_HOST = "https://nagarakshak.showcodebase.space"
+    private const val BASE_URL = "$BASE_HOST/api"
+    private const val PREFS_NAME = "nagarrakshak_offline_reports"
+    private const val KEY_REPORTS = "offline_reports"
 
+    private lateinit var appContext: Context
     private var token: String? = null
+
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
+
+    private fun getPrefs(): SharedPreferences? {
+        return if (::appContext.isInitialized) {
+            appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        } else {
+            null
+        }
+    }
+
+    private fun saveOfflineHazard(
+        category: String,
+        locationName: String,
+        latitude: Double,
+        longitude: Double,
+        severity: String,
+        description: String,
+        aiAnalysisSummary: String?,
+        imagePath: String?
+    ) {
+        val prefs = getPrefs() ?: return
+        val currentReportsJson = prefs.getString(KEY_REPORTS, "[]") ?: "[]"
+        try {
+            val jsonArray = JSONArray(currentReportsJson)
+            val newReport = JSONObject().apply {
+                put("id", "offline_${System.currentTimeMillis()}")
+                put("category", category)
+                put("location_name", locationName)
+                put("latitude", latitude)
+                put("longitude", longitude)
+                put("severity", severity)
+                put("description", description)
+                put("status", "Pending (Offline)")
+                put("verification_count", 0)
+                put("created_at", "Just now")
+                if (aiAnalysisSummary != null) {
+                    put("ai_analysis_summary", aiAnalysisSummary)
+                }
+                if (imagePath != null) {
+                    put("image_path", imagePath)
+                }
+            }
+            jsonArray.put(newReport)
+            prefs.edit().putString(KEY_REPORTS, jsonArray.toString()).apply()
+            Log.d(TAG, "Saved offline report locally: $newReport")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save offline report locally", e)
+        }
+    }
+
+    fun getOfflineHazards(): List<HazardReport> {
+        val prefs = getPrefs() ?: return emptyList()
+        val currentReportsJson = prefs.getString(KEY_REPORTS, "[]") ?: "[]"
+        val list = mutableListOf<HazardReport>()
+        try {
+            val jsonArray = JSONArray(currentReportsJson)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                list.add(parseHazard(obj))
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load offline reports", e)
+        }
+        return list
+    }
 
     fun setAuthToken(authToken: String?) {
         token = authToken
         Log.d(TAG, "Authorization token updated: ${if (authToken != null) "PRESENT" else "NULL"}")
     }
 
-    /**
-     * Fetch nearby hazard reports from backend.
-     */
     suspend fun fetchNearbyHazards(): List<HazardReport> = withContext(Dispatchers.IO) {
+        val localList = getOfflineHazards()
+        val serverList = mutableListOf<HazardReport>()
         try {
             val url = URL("$BASE_URL/hazards")
             val conn = url.openConnection() as HttpURLConnection
@@ -52,19 +125,16 @@ object BackendClient {
                 val jsonResponse = JSONObject(response.toString())
                 if (jsonResponse.optBoolean("success", false)) {
                     val dataArray = jsonResponse.getJSONArray("data")
-                    val list = mutableListOf<HazardReport>()
                     for (i in 0 until dataArray.length()) {
                         val obj = dataArray.getJSONObject(i)
-                        list.add(parseHazard(obj))
+                        serverList.add(parseHazard(obj))
                     }
-                    return@withContext list
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching hazards from backend: ${e.message}", e)
         }
-        return@withContext emptyList()
-
+        return@withContext localList + serverList
     }
 
     /**
@@ -73,6 +143,124 @@ object BackendClient {
     suspend fun fetchHazardDetail(id: String): HazardReport? = withContext(Dispatchers.IO) {
         val list = fetchNearbyHazards()
         return@withContext list.find { it.id == id }
+    }
+
+    /**
+     * Fetch feature flags from backend settings.
+     * Returns a JSONObject with keys: gemini_analysis_enabled, petition_enabled, etc.
+     */
+    suspend fun fetchSettings(): JSONObject = withContext(Dispatchers.IO) {
+        try {
+            val url = URL("$BASE_URL/settings")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 10000
+            conn.readTimeout = 10000
+            conn.setRequestProperty("Accept", "application/json")
+
+            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(responseText)
+                if (json.optBoolean("success", false)) {
+                    return@withContext json.getJSONObject("data")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchSettings failed: ${e.message}", e)
+        }
+        // Return defaults if fetch fails
+        return@withContext JSONObject().apply {
+            put("gemini_analysis_enabled", true)
+            put("petition_enabled", true)
+        }
+    }
+
+    /**
+     * Send hazard image and details to backend for AI analysis.
+     */
+    suspend fun analyzeHazardImage(
+        imageBase64: String,
+        latitude: Double?,
+        longitude: Double?,
+        description: String?,
+        city: String?,
+        userName: String?
+    ): JSONObject = withContext(Dispatchers.IO) {
+        val url = URL("$BASE_URL/ai/analyze")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.connectTimeout = 30000
+        conn.readTimeout = 30000
+        conn.doOutput = true
+        
+        val boundary = "Boundary-" + System.currentTimeMillis()
+        conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+        conn.setRequestProperty("Accept", "application/json")
+        token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
+
+        val imageBytes = android.util.Base64.decode(imageBase64, android.util.Base64.DEFAULT)
+
+        conn.outputStream.use { os ->
+            val writer = os.bufferedWriter(Charsets.UTF_8)
+            
+            if (latitude != null) {
+                writer.write("--$boundary\r\n")
+                writer.write("Content-Disposition: form-data; name=\"latitude\"\r\n\r\n")
+                writer.write("$latitude\r\n")
+            }
+            if (longitude != null) {
+                writer.write("--$boundary\r\n")
+                writer.write("Content-Disposition: form-data; name=\"longitude\"\r\n\r\n")
+                writer.write("$longitude\r\n")
+            }
+            if (description != null) {
+                writer.write("--$boundary\r\n")
+                writer.write("Content-Disposition: form-data; name=\"description\"\r\n\r\n")
+                writer.write("$description\r\n")
+            }
+            if (city != null) {
+                writer.write("--$boundary\r\n")
+                writer.write("Content-Disposition: form-data; name=\"city\"\r\n\r\n")
+                writer.write("$city\r\n")
+            }
+            if (userName != null) {
+                writer.write("--$boundary\r\n")
+                writer.write("Content-Disposition: form-data; name=\"user_name\"\r\n\r\n")
+                writer.write("$userName\r\n")
+            }
+            
+            writer.write("--$boundary\r\n")
+            writer.write("Content-Disposition: form-data; name=\"image\"; filename=\"hazard.jpg\"\r\n")
+            writer.write("Content-Type: image/jpeg\r\n\r\n")
+            writer.flush()
+            
+            os.write(imageBytes)
+            os.flush()
+            
+            writer.write("\r\n--$boundary--\r\n")
+            writer.flush()
+        }
+
+        val responseCode = conn.responseCode
+        val stream = if (responseCode == HttpURLConnection.HTTP_OK) {
+            conn.inputStream
+        } else {
+            conn.errorStream
+        }
+
+        if (stream != null) {
+            val responseText = stream.bufferedReader().use { it.readText() }
+            val jsonResponse = JSONObject(responseText)
+            if (jsonResponse.optBoolean("success", false)) {
+                return@withContext jsonResponse.getJSONObject("data")
+            } else {
+                val errMsg = jsonResponse.optString("message", "API request failed")
+                val detail = jsonResponse.optString("error", "")
+                throw Exception(if (detail.isNotEmpty()) "$errMsg: $detail" else errMsg)
+            }
+        } else {
+            throw Exception("HTTP connection failed with status code $responseCode")
+        }
     }
 
     /**
@@ -85,14 +273,15 @@ object BackendClient {
         longitude: Double,
         severity: String,
         description: String,
-        aiAnalysisSummary: String?
+        aiAnalysisSummary: String?,
+        imagePath: String?
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             val url = URL("$BASE_URL/hazards")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "POST"
-            conn.connectTimeout = 5000
-            conn.readTimeout = 5000
+            conn.connectTimeout = 15000
+            conn.readTimeout = 15000
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "application/json")
             conn.setRequestProperty("Accept", "application/json")
@@ -106,6 +295,7 @@ object BackendClient {
                 put("severity", severity)
                 put("description", description)
                 put("ai_analysis_summary", aiAnalysisSummary)
+                put("image_path", imagePath)
             }
 
             val writer = OutputStreamWriter(conn.outputStream)
@@ -113,12 +303,23 @@ object BackendClient {
             writer.flush()
             writer.close()
 
-            if (conn.responseCode == HttpURLConnection.HTTP_CREATED || conn.responseCode == HttpURLConnection.HTTP_OK) {
+            val responseCode = conn.responseCode
+            Log.d(TAG, "submitHazard response code: $responseCode")
+
+            if (responseCode == HttpURLConnection.HTTP_CREATED || responseCode == HttpURLConnection.HTTP_OK) {
+                val responseText = conn.inputStream.bufferedReader().use { it.readText() }
+                Log.d(TAG, "submitHazard success response: $responseText")
                 return@withContext true
+            } else {
+                // Read error body for diagnostics
+                val errorText = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "No error body"
+                Log.e(TAG, "submitHazard server error ($responseCode): $errorText")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error submitting hazard: ${e.message}", e)
+            Log.e(TAG, "submitHazard exception: ${e.message}", e)
         }
+        // Save locally as offline fallback if server submission fails
+        saveOfflineHazard(category, locationName, latitude, longitude, severity, description, aiAnalysisSummary, imagePath)
         return@withContext false
     }
 
@@ -214,8 +415,8 @@ object BackendClient {
                 val path = obj.getString("image_path")
                 when {
                     path.startsWith("http://") || path.startsWith("https://") -> path
-                    path.startsWith("/") -> "http://10.107.45.93:8000$path"
-                    else -> "http://10.107.45.93:8000/storage/$path"
+                    path.startsWith("/") -> "$BASE_HOST$path"
+                    else -> "$BASE_HOST/storage/$path"
                 }
             },
             rawSeverity = severityStr
@@ -722,6 +923,221 @@ object BackendClient {
             Log.e(TAG, "Error logging in with Google: ${e.message}", e)
         }
         return@withContext null
+    }
+
+    private fun executeRequest(method: String, endpoint: String, jsonBody: String? = null): String? {
+        try {
+            val url = URL("$BASE_URL/$endpoint")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = method
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
+            conn.setRequestProperty("Accept", "application/json")
+            token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
+
+            if (jsonBody != null && (method == "POST" || method == "PUT")) {
+                conn.setRequestProperty("Content-Type", "application/json")
+                conn.doOutput = true
+                conn.outputStream.use { os ->
+                    os.write(jsonBody.toByteArray(Charsets.UTF_8))
+                }
+            }
+
+            val code = conn.responseCode
+            val stream = if (code in 200..299) conn.inputStream else conn.errorStream
+            if (stream != null) {
+                return stream.bufferedReader().use { it.readText() }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Request failed: $method $endpoint", e)
+        }
+        return null
+    }
+
+    suspend fun fetchProfileStats(): JSONObject? = withContext(Dispatchers.IO) {
+        val response = executeRequest("GET", "profile/stats")
+        if (response != null) {
+            try {
+                val json = JSONObject(response)
+                if (json.optBoolean("success", false)) {
+                    return@withContext json.optJSONObject("data")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing profile stats", e)
+            }
+        }
+        return@withContext null
+    }
+
+    suspend fun fetchUserReports(): List<HazardReport> = withContext(Dispatchers.IO) {
+        val response = executeRequest("GET", "profile/reports")
+        val list = mutableListOf<HazardReport>()
+        if (response != null) {
+            try {
+                val json = JSONObject(response)
+                if (json.optBoolean("success", false)) {
+                    val data = json.getJSONArray("data")
+                    for (i in 0 until data.length()) {
+                        list.add(parseHazard(data.getJSONObject(i)))
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing user reports", e)
+            }
+        }
+        return@withContext list
+    }
+
+    suspend fun fetchSavedAlerts(): List<HazardReport> = withContext(Dispatchers.IO) {
+        val response = executeRequest("GET", "profile/saved")
+        val list = mutableListOf<HazardReport>()
+        if (response != null) {
+            try {
+                val json = JSONObject(response)
+                if (json.optBoolean("success", false)) {
+                    val data = json.getJSONArray("data")
+                    for (i in 0 until data.length()) {
+                        list.add(parseHazard(data.getJSONObject(i)))
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing saved alerts", e)
+            }
+        }
+        return@withContext list
+    }
+
+    suspend fun updateProfile(name: String, email: String, phone: String?): Boolean = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("name", name)
+            put("email", email)
+            put("phone", phone)
+        }
+        val response = executeRequest("PUT", "profile", body.toString())
+        if (response != null) {
+            try {
+                return@withContext JSONObject(response).optBoolean("success", false)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing profile update response", e)
+            }
+        }
+        return@withContext false
+    }
+
+    suspend fun changePassword(old: String, new: String): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("old_password", old)
+            put("new_password", new)
+        }
+        val response = executeRequest("PUT", "profile/password", body.toString())
+        if (response != null) {
+            try {
+                val json = JSONObject(response)
+                val success = json.optBoolean("success", false)
+                val message = json.optString("message", "Operation completed")
+                return@withContext Pair(success, message)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing password change response", e)
+            }
+        }
+        return@withContext Pair(false, "Network error or invalid password")
+    }
+
+    suspend fun updateSecurity(twoFactor: Boolean): Boolean = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("two_factor_enabled", twoFactor)
+        }
+        val response = executeRequest("PUT", "profile/security", body.toString())
+        if (response != null) {
+            try {
+                return@withContext JSONObject(response).optBoolean("success", false)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing security update response", e)
+            }
+        }
+        return@withContext false
+    }
+
+    suspend fun updateVerification(aadhaar: String): Boolean = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("aadhaar_number", aadhaar)
+        }
+        val response = executeRequest("PUT", "profile/verification", body.toString())
+        if (response != null) {
+            try {
+                return@withContext JSONObject(response).optBoolean("success", false)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing verification update response", e)
+            }
+        }
+        return@withContext false
+    }
+
+    suspend fun fetchPreferences(): JSONObject? = withContext(Dispatchers.IO) {
+        val response = executeRequest("GET", "settings/preferences")
+        if (response != null) {
+            try {
+                val json = JSONObject(response)
+                if (json.optBoolean("success", false)) {
+                    return@withContext json.optJSONObject("data")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing preferences", e)
+            }
+        }
+        return@withContext null
+    }
+
+    suspend fun updatePreferences(prefs: JSONObject): Boolean = withContext(Dispatchers.IO) {
+        val response = executeRequest("PUT", "settings/preferences", prefs.toString())
+        if (response != null) {
+            try {
+                return@withContext JSONObject(response).optBoolean("success", false)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing preferences update response", e)
+            }
+        }
+        return@withContext false
+    }
+
+    suspend fun fetchNotifications(): List<NotificationItem> = withContext(Dispatchers.IO) {
+        val response = executeRequest("GET", "notifications")
+        val list = mutableListOf<NotificationItem>()
+        if (response != null) {
+            try {
+                val json = JSONObject(response)
+                if (json.optBoolean("success", false)) {
+                    val data = json.getJSONArray("data")
+                    for (i in 0 until data.length()) {
+                        val obj = data.getJSONObject(i)
+                        list.add(
+                            NotificationItem(
+                                id = obj.optString("id", ""),
+                                title = obj.optString("title", ""),
+                                body = obj.optString("body", ""),
+                                type = obj.optString("type", "Announcement"),
+                                time = obj.optString("created_at", "Just now")
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing notifications response", e)
+            }
+        }
+        return@withContext list
+    }
+
+    suspend fun deleteNotification(id: String): Boolean = withContext(Dispatchers.IO) {
+        val response = executeRequest("DELETE", "notifications/$id")
+        if (response != null) {
+            try {
+                return@withContext JSONObject(response).optBoolean("success", false)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing delete notification response", e)
+            }
+        }
+        return@withContext false
     }
 }
 

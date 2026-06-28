@@ -1,3 +1,4 @@
+@file:Suppress("DEPRECATION")
 package com.nagarrakshak.ui.screens
 
 import androidx.compose.foundation.BorderStroke
@@ -8,14 +9,25 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.material3.*
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -62,27 +74,62 @@ import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
 fun HomeScreen(
     onNavigateToReport: () -> Unit,
     onNavigateToDetail: (String) -> Unit,
     onNavigateToMap: () -> Unit,
-    onNavigateToAlerts: () -> Unit
+    onNavigateToAlerts: () -> Unit,
+    onNavigateToNotifications: () -> Unit
 ) {
     val context = LocalContext.current
-    var currentCityName by remember { mutableStateOf("Chandigarh") }
+    var currentCityName by remember { mutableStateOf("Kota") }
     var userLatLng by remember { mutableStateOf<LatLng?>(null) }
+    var userPincode by remember { mutableStateOf("324005") }
     var showScoreDialog by remember { mutableStateOf(false) }
     var alertsList by remember { mutableStateOf<List<HazardReport>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
 
-    LaunchedEffect(Unit) {
-        isLoading = true
-        alertsList = BackendClient.fetchNearbyHazards()
-        isLoading = false
+    val safetyScore = remember(alertsList, userPincode, userLatLng) {
+        val currentLatLng = userLatLng
+        val count = alertsList.count { 
+            it.locationName.contains(userPincode) || 
+            (currentLatLng != null && Math.abs(it.latitude - currentLatLng.latitude) < 0.02 && Math.abs(it.longitude - currentLatLng.longitude) < 0.02)
+        }
+        (100 - (count * 6)).coerceIn(10, 100)
     }
 
+    val riskZone = remember(safetyScore) {
+        when {
+            safetyScore >= 85 -> "Very Low Risk Zone"
+            safetyScore >= 70 -> "Low Risk Zone"
+            safetyScore >= 50 -> "Medium Risk Zone"
+            else -> "High Risk Zone"
+        }
+    }
+
+    val riskColor = remember(safetyScore) {
+        when {
+            safetyScore >= 85 -> Color(0xFF15803D)
+            safetyScore >= 70 -> Color(0xFF16A34A)
+            safetyScore >= 50 -> Color(0xFFD97706)
+            else -> Color(0xFFDC2626)
+        }
+    }
+    var isRefreshing by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+
+    // Load data function (reusable for pull-to-refresh)
+    val loadData: suspend () -> Unit = {
+        alertsList = BackendClient.fetchNearbyHazards()
+    }
+
+    LaunchedEffect(Unit) {
+        isLoading = true
+        loadData()
+        isLoading = false
+    }
 
     val locationPermissionsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -90,8 +137,9 @@ fun HomeScreen(
         val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
         val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
         if (fineGranted || coarseGranted) {
-            fetchHomeLocation(context) { city ->
+            fetchHomeLocation(context) { city, pincode ->
                 currentCityName = city
+                userPincode = pincode
             }
             fetchCurrentLocationLatLng(context) { latLng ->
                 userLatLng = latLng
@@ -103,8 +151,9 @@ fun HomeScreen(
         val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
         val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
         if (hasFine || hasCoarse) {
-            fetchHomeLocation(context) { city ->
+            fetchHomeLocation(context) { city, pincode ->
                 currentCityName = city
+                userPincode = pincode
             }
             fetchCurrentLocationLatLng(context) { latLng ->
                 userLatLng = latLng
@@ -120,395 +169,378 @@ fun HomeScreen(
     if (showScoreDialog) {
         AlertDialog(
             onDismissRequest = { showScoreDialog = false },
-            title = { Text("Area Safety Score", fontWeight = FontWeight.Bold) },
+            containerColor = Color(0xFF1E2A3A),
+            title = { Text("Area Safety Score", fontWeight = FontWeight.Bold, color = Color.White) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Your area safety score is 82/100, which indicates a Low Risk Zone.", fontWeight = FontWeight.SemiBold, color = Color(0xFF15803D))
+                    Text(
+                        text = "Your area safety score is $safetyScore/100 (Pincode: $userPincode), which indicates a $riskZone.",
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (safetyScore >= 70) Color(0xFF4ADE80) else Color(0xFFFCA5A5)
+                    )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text("This real-time safety metric is aggregated from citizen-reported public safety issues within your vicinity.", fontSize = 13.sp, color = Color(0xFF475569))
-                    Text("• Active unresolved hazards: 3 (Low)", fontSize = 12.sp, color = Color(0xFF475569))
-                    Text("• Hazard resolution rate: 94% (High)", fontSize = 12.sp, color = Color(0xFF475569))
-                    Text("• Community safety engagement: Excellent", fontSize = 12.sp, color = Color(0xFF475569))
+                    Text(
+                        text = "This real-time safety metric is aggregated from citizen-reported public safety issues within your vicinity.",
+                        fontSize = 13.sp,
+                        color = Color(0xFFE2E8F0)
+                    )
+                    Text("• Active unresolved hazards: ${alertsList.size} ($riskZone)", fontSize = 12.sp, color = Color(0xFFCBD5E1))
+                    Text("• Hazard resolution rate: 94% (High)", fontSize = 12.sp, color = Color(0xFFCBD5E1))
+                    Text("• Community safety engagement: Excellent", fontSize = 12.sp, color = Color(0xFFCBD5E1))
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showScoreDialog = false }) {
-                    Text("Close", color = Color(0xFF16A34A), fontWeight = FontWeight.Bold)
+                    Text("Close", color = Color(0xFF4ADE80), fontWeight = FontWeight.Bold)
                 }
             }
         )
     }
 
-    LazyColumn(
+    Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF8FAFC))
-            .padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp)
+            .background(Color(0xFFF5F7FA))
     ) {
-        // 1. Top Header Component
-        item {
+        // Header Section (dark navy bg #1E2A3A)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF1E2A3A))
+                .padding(bottom = 16.dp)
+        ) {
+            // Status bar spacer or top padding
+            Spacer(modifier = Modifier.height(12.dp))
+            
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Shield Logo Checkmark in a circle
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .background(Color(0xFF16A34A), shape = CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("🛡️", fontSize = 24.sp)
-                }
-                
-                Spacer(modifier = Modifier.width(12.dp))
-                
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Good Morning, Citizen",
-                        fontSize = 13.sp,
-                        color = Color(0xFF64748B),
-                        fontWeight = FontWeight.Medium
-                    )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.clickable { onNavigateToMap() }
-                    ) {
-                        Text(
-                            text = currentCityName,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF0F172A)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("▼", fontSize = 10.sp, color = Color(0xFF64748B))
-                    }
-                }
-                
-                // Action Buttons Row
+                // Top Left: City name "Kota" in white 20px Bold with a dropdown chevron
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.clickable { onNavigateToMap() }
                 ) {
-                    // Safety Score Circle Badge (82)
+                    Text(
+                        text = currentCityName,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Change Location",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                
+                // Top Right: Score badge (circular shows "82") + bell icon with notification dot
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Score badge
                     Box(
                         modifier = Modifier
                             .size(36.dp)
-                            .background(Color(0xFF16A34A), shape = CircleShape)
+                            .background(riskColor, shape = CircleShape)
                             .clickable { showScoreDialog = true },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "82",
+                            text = safetyScore.toString(),
                             color = Color.White,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
-
-                    // Notification bell with red badge
+                    
+                    // Bell icon with red notification dot
                     Box(
                         modifier = Modifier
-                            .size(36.dp)
-                            .background(Color.White, shape = CircleShape)
-                            .border(1.dp, Color(0xFFE2E8F0), CircleShape)
-                            .clickable { },
+                            .size(24.dp)
+                            .clickable { onNavigateToNotifications() },
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.Notifications,
                             contentDescription = "Notifications",
-                            tint = Color(0xFF475569),
-                            modifier = Modifier.size(18.dp)
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
                         )
-                        // Red badge indicator
+                        // Red notification dot
                         Box(
                             modifier = Modifier
-                                .size(14.dp)
-                                .background(Color(0xFFEF4444), shape = CircleShape)
+                                .size(8.dp)
+                                .background(Color(0xFFDC2626), shape = CircleShape)
                                 .align(Alignment.TopEnd)
-                                .offset(x = 2.dp, y = (-2).dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "3",
-                                color = Color.White,
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-
-                    // Scan/QR Code Corners button
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .background(Color.White, shape = CircleShape)
-                            .border(1.dp, Color(0xFFE2E8F0), CircleShape)
-                            .clickable { },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        ScanIcon()
+                                .offset(x = 1.dp, y = (-1).dp)
+                        )
                     }
                 }
             }
-        }
-
-        // 2. Search Bar & Voice Input Row
-        item {
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Search Bar: Full width, white background, 8px border-radius, 1px #E5E7EB border, no shadow
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
             ) {
+                var searchInput by remember { mutableStateOf("") }
                 OutlinedTextField(
-                    value = "",
-                    onValueChange = {},
+                    value = searchInput,
+                    onValueChange = { searchInput = it },
                     placeholder = { 
                         Text(
                             "Search hazards, areas, landmarks...",
                             fontSize = 14.sp,
-                            color = Color(0xFF94A3B8)
+                            color = Color(0xFF6B7280)
                         ) 
                     },
                     leadingIcon = { 
                         Icon(
                             imageVector = Icons.Default.Search, 
                             contentDescription = "Search",
-                            tint = Color(0xFF94A3B8)
+                            tint = Color(0xFF6B7280)
                         ) 
                     },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(24.dp),
+                    trailingIcon = {
+                        MicLineIcon(
+                            color = Color(0xFF6B7280),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFFE2E8F0),
-                        unfocusedBorderColor = Color(0xFFE2E8F0),
+                        focusedBorderColor = Color(0xFFE5E7EB),
+                        unfocusedBorderColor = Color(0xFFE5E7EB),
                         focusedContainerColor = Color.White,
-                        unfocusedContainerColor = Color.White
+                        unfocusedContainerColor = Color.White,
+                        focusedTextColor = Color(0xFF111827),
+                        unfocusedTextColor = Color(0xFF111827)
                     ),
                     singleLine = true
                 )
-                
-                // Voice input microphone rounded-box button
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(Color.White, shape = RoundedCornerShape(12.dp))
-                        .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(12.dp))
-                        .clickable { },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("🎙️", fontSize = 18.sp)
+            }
+        }
+        
+        HorizontalDivider(color = Color(0xFFE5E7EB), thickness = 1.dp)
+
+        // Scrollable Body Content with Pull-to-Refresh
+        val pullRefreshState = rememberPullRefreshState(
+            refreshing = isRefreshing,
+            onRefresh = {
+                coroutineScope.launch {
+                    isRefreshing = true
+                    loadData()
+                    isRefreshing = false
                 }
             }
-        }
-
-        // 3. Quick Action Cards (1 Row of 4 cards)
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                QuickActionCard(
-                    title = "Report Hazard",
-                    iconEmoji = "⚠️",
-                    iconBg = Color(0xFFFEE2E2), // Light red
-                    onClick = onNavigateToReport,
-                    modifier = Modifier.weight(1f)
-                )
-                QuickActionCard(
-                    title = "Nearby Hazards",
-                    iconEmoji = "📍",
-                    iconBg = Color(0xFFDBEAFE), // Light blue
-                    onClick = onNavigateToMap,
-                    modifier = Modifier.weight(1f)
-                )
-                QuickActionCard(
-                    title = "My Reports",
-                    iconEmoji = "📝",
-                    iconBg = Color(0xFFD1FAE5), // Light green
-                    onClick = onNavigateToReport,
-                    modifier = Modifier.weight(1f)
-                )
-                QuickActionCard(
-                    title = "Emergency Alerts",
-                    iconEmoji = "🔔",
-                    iconBg = Color(0xFFFEF3C7), // Light yellow
-                    onClick = onNavigateToMap,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        // 4. Live Hazard Map Preview
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Live Hazard Map Preview",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF0F172A)
-                )
-                
-                MapPreviewWidget(
-                    userLatLng = userLatLng,
-                    alertsList = alertsList,
-                    onOpenFullMap = onNavigateToMap
-                )
-            }
-        }
-
-        // 5. Nearby Alerts Section Title
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Nearby Alerts",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF0F172A)
-                )
+        )
+        Box(Modifier.fillMaxSize().pullRefresh(pullRefreshState)) {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
+        ) {
+            // Action Strip (below search)
+            item {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { onNavigateToAlerts() }
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "View All",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF64748B)
-                    )
-                    Spacer(modifier = Modifier.width(2.dp))
-                    Text(
-                        text = "›",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF64748B)
-                    )
-                }
-            }
-        }
-
-        // 6. Nearby Alerts List (dynamic with skeleton fallback)
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (isLoading || alertsList.isEmpty()) {
-                    repeat(3) {
-                        SkeletonAlertCard()
+                    // Left button: solid civic blue #1B4FD8
+                    Button(
+                        onClick = onNavigateToReport,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B4FD8)),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(
+                            text = "+ Report Hazard",
+                            color = Color.White,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
-                } else {
-                    alertsList.forEach { alert ->
-                        val severityColor = when (alert.severity) {
-                            Severity.HIGH -> Color(0xFFEF4444)
-                            Severity.MEDIUM -> Color(0xFFD97706)
-                            Severity.LOW -> Color(0xFF10B981)
-                        }
-                        val severityBg = when (alert.severity) {
-                            Severity.HIGH -> Color(0xFFFEE2E2)
-                            Severity.MEDIUM -> Color(0xFFFEF3C7)
-                            Severity.LOW -> Color(0xFFD1FAE5)
-                        }
-                        NearbyAlertVerticalCard(
-                            title = alert.title,
-                            location = alert.locationName,
-                            description = alert.description,
-                            distance = "Nearby",
-                            severity = when (alert.severity) {
-                                Severity.HIGH -> "High"
-                                Severity.MEDIUM -> "Medium"
-                                Severity.LOW -> "Low"
-                            },
-                            severityColor = severityColor,
-                            severityBg = severityBg,
-                            timeAgo = alert.reportTime,
-                            imageUrl = alert.imageUrl,
-                            onClick = { onNavigateToDetail(alert.id) }
+                    
+                    // Right button: outlined civic blue
+                    OutlinedButton(
+                        onClick = onNavigateToMap,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(44.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF1B4FD8)),
+                        border = BorderStroke(1.dp, Color(0xFF1B4FD8)),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(
+                            text = "View Hazard Map",
+                            color = Color(0xFF1B4FD8),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
                         )
                     }
                 }
             }
-        }
 
-    }
-}
-
-@Composable
-fun ScanIcon() {
-    Canvas(modifier = Modifier.size(16.dp)) {
-        val stroke = 1.5.dp.toPx()
-        val len = 4.dp.toPx()
-        val color = Color(0xFF475569)
-        
-        // Top-Left corner
-        drawLine(color, Offset(0f, 0f), Offset(len, 0f), strokeWidth = stroke)
-        drawLine(color, Offset(0f, 0f), Offset(0f, len), strokeWidth = stroke)
-        
-        // Top-Right corner
-        drawLine(color, Offset(size.width, 0f), Offset(size.width - len, 0f), strokeWidth = stroke)
-        drawLine(color, Offset(size.width, 0f), Offset(size.width, len), strokeWidth = stroke)
-        
-        // Bottom-Left corner
-        drawLine(color, Offset(0f, size.height), Offset(len, size.height), strokeWidth = stroke)
-        drawLine(color, Offset(0f, size.height), Offset(0f, size.height - len), strokeWidth = stroke)
-        
-        // Bottom-Right corner
-        drawLine(color, Offset(size.width, size.height), Offset(size.width - len, size.height), strokeWidth = stroke)
-        drawLine(color, Offset(size.width, size.height), Offset(size.width, size.height - len), strokeWidth = stroke)
-        
-        // Center scanner dot
-        drawRect(color, Offset(size.width * 0.35f, size.height * 0.35f), size * 0.3f)
-    }
-}
-
-@Composable
-fun QuickActionCard(
-    title: String,
-    iconEmoji: String,
-    iconBg: Color,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .height(90.dp)
-            .clickable { onClick() },
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(iconBg, shape = RoundedCornerShape(10.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(iconEmoji, fontSize = 18.sp)
+            // Map Preview Section
+            item {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "LIVE HAZARD MAP — ${currentCityName.uppercase()}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF6B7280),
+                        letterSpacing = 1.sp
+                    )
+                    
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                    ) {
+                        Column {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(180.dp)
+                                    .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
+                            ) {
+                                val center = userLatLng ?: LatLng(25.18254, 75.82736)
+                                val cameraPositionState = rememberCameraPositionState {
+                                    position = CameraPosition.fromLatLngZoom(center, 14f)
+                                }
+                                
+                                LaunchedEffect(userLatLng) {
+                                    val latLng = userLatLng
+                                    if (latLng != null) {
+                                        cameraPositionState.position = CameraPosition.fromLatLngZoom(latLng, 14f)
+                                    }
+                                }
+                                
+                                GoogleMap(
+                                    modifier = Modifier.fillMaxSize(),
+                                    cameraPositionState = cameraPositionState,
+                                    properties = com.google.maps.android.compose.MapProperties(isMyLocationEnabled = userLatLng != null),
+                                    uiSettings = com.google.maps.android.compose.MapUiSettings(
+                                        zoomControlsEnabled = false,
+                                        myLocationButtonEnabled = false
+                                    )
+                                ) {
+                                    alertsList.take(3).forEach { alert ->
+                                        Marker(
+                                            state = MarkerState(position = LatLng(alert.latitude, alert.longitude)),
+                                            title = alert.title
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onNavigateToMap() }
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                contentAlignment = Alignment.CenterEnd
+                            ) {
+                                Text(
+                                    text = "View Full Map →",
+                                    color = Color(0xFF1B4FD8),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                }
             }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = title,
-                color = Color(0xFF334155),
-                fontWeight = FontWeight.Bold,
-                fontSize = 10.sp,
-                textAlign = TextAlign.Center,
-                maxLines = 2,
-                lineHeight = 12.sp
-            )
+
+            // Nearby Alerts Header
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Nearby Alerts",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF111827)
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable { onNavigateToAlerts() }
+                    ) {
+                        Text(
+                            text = "View All ›",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1B4FD8)
+                        )
+                    }
+                }
+            }
+
+            // Nearby Alerts List (show max 5 on home)
+            val displayAlerts = alertsList.take(5)
+            if (isLoading || alertsList.isEmpty()) {
+                items(3) {
+                    SkeletonAlertCard()
+                }
+            } else {
+                items(count = displayAlerts.size, key = { index -> displayAlerts[index].id }) { index ->
+                    val alert = displayAlerts[index]
+                    val severityColor = when (alert.severity) {
+                        Severity.HIGH -> Color(0xFFDC2626)
+                        Severity.MEDIUM -> Color(0xFFD97706)
+                        Severity.LOW -> Color(0xFF16A34A)
+                    }
+                    NearbyAlertVerticalCard(
+                        title = alert.title,
+                        location = alert.locationName,
+                        description = alert.description,
+                        distance = "Nearby",
+                        severity = when (alert.severity) {
+                            Severity.HIGH -> "High"
+                            Severity.MEDIUM -> "Medium"
+                            Severity.LOW -> "Low"
+                        },
+                        severityColor = severityColor,
+                        imageUrl = alert.imageUrl,
+                        onClick = { onNavigateToDetail(alert.id) }
+                    )
+                }
+            }
         }
+        PullRefreshIndicator(
+            refreshing = isRefreshing,
+            state = pullRefreshState,
+            modifier = Modifier.align(Alignment.TopCenter),
+            contentColor = Color(0xFF1B4FD8)
+        )
+        } // end pullRefresh Box
     }
 }
 
@@ -518,65 +550,7 @@ fun MapPreviewWidget(
     alertsList: List<HazardReport>,
     onOpenFullMap: () -> Unit
 ) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(180.dp),
-        shape = RoundedCornerShape(16.dp),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            val center = userLatLng ?: LatLng(25.18254, 75.82736) // Fallback to Kota
-            val cameraPositionState = rememberCameraPositionState {
-                position = CameraPosition.fromLatLngZoom(center, 14f)
-            }
-
-            LaunchedEffect(userLatLng) {
-                if (userLatLng != null) {
-                    cameraPositionState.position = CameraPosition.fromLatLngZoom(userLatLng, 14f)
-                }
-            }
-
-            GoogleMap(
-                modifier = Modifier.fillMaxSize(),
-                cameraPositionState = cameraPositionState,
-                properties = com.google.maps.android.compose.MapProperties(isMyLocationEnabled = userLatLng != null),
-                uiSettings = com.google.maps.android.compose.MapUiSettings(
-                    zoomControlsEnabled = false,
-                    myLocationButtonEnabled = false
-                )
-            ) {
-                alertsList.forEach { alert ->
-                    Marker(
-                        state = MarkerState(position = LatLng(alert.latitude, alert.longitude)),
-                        title = alert.title,
-                        snippet = alert.locationName
-                    )
-                }
-            }
-
-
-            // Centered dark-green button OPEN FULL MAP
-            Button(
-                onClick = onOpenFullMap,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF14532D)),
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 12.dp)
-                    .height(36.dp),
-                shape = RoundedCornerShape(18.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
-            ) {
-                Text(
-                    text = "OPEN FULL MAP", 
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 11.sp
-                )
-            }
-        }
-    }
+    // Keep old widget definition to avoid compilation errors elsewhere if referenced
 }
 
 @Composable
@@ -587,8 +561,6 @@ fun NearbyAlertVerticalCard(
     distance: String,
     severity: String,
     severityColor: Color,
-    severityBg: Color,
-    timeAgo: String,
     imageUrl: String?,
     onClick: () -> Unit
 ) {
@@ -597,121 +569,176 @@ fun NearbyAlertVerticalCard(
             .fillMaxWidth()
             .clickable { onClick() },
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, Color(0xFFE5E7EB))
     ) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
         ) {
-            // Rounded photo/illustration container on the left
+            // Left edge 3px solid color bar
             Box(
                 modifier = Modifier
-                    .size(80.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFF1F5F9)),
-                contentAlignment = Alignment.Center
+                    .width(3.dp)
+                    .fillMaxHeight()
+                    .background(severityColor)
+            )
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                val model = if (!imageUrl.isNullOrBlank()) imageUrl else com.nagarrakshak.R.drawable.placeholder_hazard
-                coil.compose.AsyncImage(
-                    model = model,
-                    contentDescription = "Hazard Thumbnail",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                )
-            }
-            
-            Spacer(modifier = Modifier.width(12.dp))
-            
-            // Middle details
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = Color(0xFF0F172A)
-                )
-                
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("📍", fontSize = 10.sp)
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Text(
-                        text = location,
-                        fontSize = 11.sp,
-                        color = Color(0xFF64748B),
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-                
-                Text(
-                    text = description,
-                    fontSize = 12.sp,
-                    color = Color(0xFF64748B),
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            
-            Spacer(modifier = Modifier.width(8.dp))
-            
-            // Right side distance & severity metrics
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.height(76.dp)
-            ) {
-                // Distance badge
+                // Thumbnail: 56x56px image, 6px radius
                 Box(
                     modifier = Modifier
-                        .background(Color(0xFFF0FDF4), shape = RoundedCornerShape(6.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .size(56.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFFF3F4F6)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = distance,
-                        color = Color(0xFF16A34A),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 9.sp
+                    val model = if (!imageUrl.isNullOrBlank()) imageUrl else com.nagarrakshak.R.drawable.placeholder_hazard
+                    coil.compose.AsyncImage(
+                        model = model,
+                        contentDescription = "Hazard Thumbnail",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
                     )
                 }
                 
-                // Severity badge with color circle dot indicator
-                Row(
-                    modifier = Modifier
-                        .background(severityBg, shape = RoundedCornerShape(6.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                Spacer(modifier = Modifier.width(12.dp))
+                
+                // Middle details
+                Column(
+                    modifier = Modifier.weight(1f)
                 ) {
+                    Text(
+                        text = title,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF111827)
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = location,
+                        fontSize = 12.sp,
+                        color = Color(0xFF6B7280),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = description,
+                        fontSize = 12.sp,
+                        color = Color(0xFF9CA3AF),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                // Right details column
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    // Severity pill badge
                     Box(
                         modifier = Modifier
-                            .size(6.dp)
-                            .background(severityColor, shape = CircleShape)
-                    )
+                            .background(severityColor, shape = RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = severity,
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    
+                    // Nearby gray tag
+                    Box(
+                        modifier = Modifier
+                            .background(Color(0xFFF3F4F6), shape = RoundedCornerShape(4.dp))
+                            .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = distance,
+                            color = Color(0xFF6B7280),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    
+                    // Recent text
                     Text(
-                        text = severity,
-                        color = severityColor,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 9.sp
+                        text = "Recent",
+                        color = Color(0xFF6B7280),
+                        fontSize = 10.sp
                     )
                 }
-                
-                // Time
-                Text(
-                    text = timeAgo,
-                    fontSize = 10.sp,
-                    color = Color(0xFF94A3B8)
-                )
             }
         }
     }
 }
+
+@Composable
+fun SkeletonAlertCard() {
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val alpha by transition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.9f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "alpha"
+    )
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(alpha),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, Color(0xFFE5E7EB))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFFE5E7EB))
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(modifier = Modifier.fillMaxWidth(0.6f).height(16.dp).background(Color(0xFFE5E7EB), shape = RoundedCornerShape(4.dp)))
+                Box(modifier = Modifier.fillMaxWidth(0.4f).height(12.dp).background(Color(0xFFE5E7EB), shape = RoundedCornerShape(4.dp)))
+                Box(modifier = Modifier.fillMaxWidth(0.9f).height(12.dp).background(Color(0xFFE5E7EB), shape = RoundedCornerShape(4.dp)))
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.height(56.dp)
+            ) {
+                Box(modifier = Modifier.size(width = 45.dp, height = 16.dp).background(Color(0xFFE5E7EB), shape = RoundedCornerShape(6.dp)))
+                Box(modifier = Modifier.size(width = 50.dp, height = 16.dp).background(Color(0xFFE5E7EB), shape = RoundedCornerShape(6.dp)))
+            }
+        }
+    }
+}
+
 
 @Composable
 fun OpenDrainIllustration() {
@@ -766,7 +793,7 @@ fun BrokenStreetLightIllustration() {
 /**
  * Fetch home location (city name) using LocationManager and reverse geocoding.
  */
-fun fetchHomeLocation(context: Context, onCityDetected: (String) -> Unit) {
+fun fetchHomeLocation(context: Context, onLocationInfo: (String, String) -> Unit) {
     try {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val isGpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
@@ -790,7 +817,8 @@ fun fetchHomeLocation(context: Context, onCityDetected: (String) -> Unit) {
             val geocoder = Geocoder(context, Locale.getDefault())
             val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
             val cityName = addresses?.firstOrNull()?.locality ?: addresses?.firstOrNull()?.subAdminArea ?: "Chandigarh"
-            onCityDetected(cityName)
+            val pincode = addresses?.firstOrNull()?.postalCode ?: "324005"
+            onLocationInfo(cityName, pincode)
         } else {
             val provider = if (isNetworkEnabled) LocationManager.NETWORK_PROVIDER else LocationManager.GPS_PROVIDER
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
@@ -802,9 +830,10 @@ fun fetchHomeLocation(context: Context, onCityDetected: (String) -> Unit) {
                             val geocoder = Geocoder(context, Locale.getDefault())
                             val addresses = geocoder.getFromLocation(loc.latitude, loc.longitude, 1)
                             val cityName = addresses?.firstOrNull()?.locality ?: addresses?.firstOrNull()?.subAdminArea ?: "Chandigarh"
-                            onCityDetected(cityName)
+                            val pincode = addresses?.firstOrNull()?.postalCode ?: "324005"
+                            onLocationInfo(cityName, pincode)
                         } catch (e: Exception) {
-                            onCityDetected("Chandigarh")
+                            onLocationInfo("Chandigarh", "324005")
                         }
                     }
                     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
@@ -814,7 +843,7 @@ fun fetchHomeLocation(context: Context, onCityDetected: (String) -> Unit) {
             }
         }
     } catch (e: Exception) {
-        onCityDetected("Chandigarh")
+        onLocationInfo("Chandigarh", "324005")
     }
 }
 
@@ -875,60 +904,64 @@ fun PotholeIllustration() {
 }
 
 @Composable
-fun SkeletonAlertCard() {
-    val transition = rememberInfiniteTransition(label = "shimmer")
-    val alpha by transition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "alpha"
-    )
-
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .alpha(alpha),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(80.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFE2E8F0))
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Box(modifier = Modifier.fillMaxWidth(0.6f).height(16.dp).background(Color(0xFFE2E8F0), shape = RoundedCornerShape(4.dp)))
-                Box(modifier = Modifier.fillMaxWidth(0.4f).height(12.dp).background(Color(0xFFE2E8F0), shape = RoundedCornerShape(4.dp)))
-                Box(modifier = Modifier.fillMaxWidth(0.9f).height(12.dp).background(Color(0xFFE2E8F0), shape = RoundedCornerShape(4.dp)))
-            }
-            Spacer(modifier = Modifier.width(8.dp))
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.height(76.dp)
-            ) {
-                Box(modifier = Modifier.size(width = 45.dp, height = 16.dp).background(Color(0xFFE2E8F0), shape = RoundedCornerShape(6.dp)))
-                Box(modifier = Modifier.size(width = 50.dp, height = 16.dp).background(Color(0xFFE2E8F0), shape = RoundedCornerShape(6.dp)))
-                Box(modifier = Modifier.size(width = 30.dp, height = 10.dp).background(Color(0xFFE2E8F0), shape = RoundedCornerShape(6.dp)))
-            }
-        }
+fun MicLineIcon(
+    color: Color = Color(0xFF6B7280),
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = 1.5.dp.toPx()
+        val w = size.width
+        val h = size.height
+        
+        // 1. Microphone center capsule
+        val capsuleW = w * 0.35f
+        val capsuleH = h * 0.55f
+        val capsuleX = (w - capsuleW) / 2f
+        val capsuleY = h * 0.15f
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(capsuleX, capsuleY),
+            size = Size(capsuleW, capsuleH),
+            cornerRadius = CornerRadius(capsuleW / 2f, capsuleW / 2f),
+            style = Stroke(width = strokeWidth)
+        )
+        
+        // 2. U-shaped stand line
+        val standW = w * 0.55f
+        val standH = h * 0.35f
+        val standX = (w - standW) / 2f
+        val standY = capsuleY + capsuleH * 0.4f
+        drawArc(
+            color = color,
+            startAngle = 0f,
+            sweepAngle = 180f,
+            useCenter = false,
+            topLeft = Offset(standX, standY),
+            size = Size(standW, standH),
+            style = Stroke(width = strokeWidth)
+        )
+        
+        // 3. Vertical stem and horizontal base
+        val stemTopY = standY + standH
+        val stemBottomY = h * 0.9f
+        drawLine(
+            color = color,
+            start = Offset(w / 2f, stemTopY),
+            end = Offset(w / 2f, stemBottomY),
+            strokeWidth = strokeWidth
+        )
+        
+        val baseW = w * 0.3f
+        drawLine(
+            color = color,
+            start = Offset((w - baseW) / 2f, stemBottomY),
+            end = Offset((w + baseW) / 2f, stemBottomY),
+            strokeWidth = strokeWidth
+        )
     }
 }
+
+
 
 
 

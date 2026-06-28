@@ -11,12 +11,15 @@ class AiApiController extends Controller
      * POST /ai/analyze
      * Processes raw hazard photo via Gemini to detect issue details.
      */
-    public function analyze(Request $request, \App\Services\GeminiService $geminiService)
+    public function analyze(Request $request, \App\Services\GeminiService $geminiService, \App\Services\GcsService $gcsService)
     {
         $request->validate([
             'image' => 'required|file|mimes:jpeg,png,jpg|max:10240',
             'latitude' => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
+            'description' => 'nullable|string',
+            'city' => 'nullable|string',
+            'user_name' => 'nullable|string',
         ]);
 
         try {
@@ -28,17 +31,56 @@ class AiApiController extends Controller
             
             $latitude = $request->input('latitude');
             $longitude = $request->input('longitude');
+            $description = $request->input('description');
+            $city = $request->input('city');
+            $userName = $request->input('user_name');
 
-            // Call Gemini Service
-            $analysisResult = $geminiService->analyzeHazardImage($imageBase64, $mimeType, $latitude, $longitude);
+            // Upload original image directly to GCS (no re-encoding to avoid quality loss and color shifts)
+            $originalData = file_get_contents($imageFile->getRealPath());
+            $mimeTypeLower = strtolower($mimeType);
+            
+            // Determine file extension from MIME type
+            $extMap = [
+                'image/jpeg' => 'jpg',
+                'image/jpg' => 'jpg',
+                'image/png' => 'png',
+                'image/webp' => 'webp',
+            ];
+            $ext = $extMap[$mimeTypeLower] ?? 'jpg';
+            $fileName = uniqid('hazard_') . '.' . $ext;
+            
+            $imageUrl = $gcsService->uploadImage($originalData, $fileName, $mimeType);
 
-            // Store in database
-            $aiAnalysis = \App\Models\AiAnalysis::create([
-                'predicted_severity' => $analysisResult['predicted_severity'] ?? null,
-                'generated_summary' => $analysisResult['generated_summary'] ?? null,
-                'petition_draft' => $analysisResult['petition_draft'] ?? null,
-                'raw_payload' => $analysisResult,
-            ]);
+            if (!$imageUrl) {
+                // Save locally as fallback
+                $localPath = $imageFile->store('hazards', 'public');
+                $imageUrl = asset('storage/' . $localPath);
+            }
+
+            // Check if AI analysis is enabled
+            $geminiEnabled = \App\Services\SettingsService::get('gemini_analysis_enabled', '1') === '1';
+            $petitionEnabled = \App\Services\SettingsService::get('petition_enabled', '1') === '1';
+
+            $analysisResult = [];
+            $aiAnalysis = null;
+
+            if ($geminiEnabled) {
+                // Call Gemini Service
+                $analysisResult = $geminiService->analyzeHazardImage($imageBase64, $mimeType, $latitude, $longitude, $description, $city, $userName);
+
+                // Strip petition if feature is disabled
+                if (!$petitionEnabled) {
+                    unset($analysisResult['petition_draft']);
+                }
+
+                // Store in database
+                $aiAnalysis = \App\Models\AiAnalysis::create([
+                    'predicted_severity' => $analysisResult['predicted_severity'] ?? null,
+                    'generated_summary' => $analysisResult['generated_summary'] ?? null,
+                    'petition_draft' => $petitionEnabled ? ($analysisResult['petition_draft'] ?? null) : null,
+                    'raw_payload' => $analysisResult,
+                ]);
+            }
 
             // Duplicate Detection Logic (20 meters)
             $similarHazards = [];
@@ -86,12 +128,15 @@ class AiApiController extends Controller
             return response()->json([
                 'success' => true,
                 'data' => [
-                    'ai_analysis_id' => $aiAnalysis->id,
+                    'ai_analysis_id' => $aiAnalysis?->id,
+                    'image_path' => $imageUrl,
+                    'gemini_enabled' => $geminiEnabled,
+                    'petition_enabled' => $petitionEnabled,
                     'predicted_category' => $analysisResult['predicted_category'] ?? null,
                     'predicted_severity' => $analysisResult['predicted_severity'] ?? null,
                     'confidence_score' => $analysisResult['confidence_score'] ?? null,
                     'generated_summary' => $analysisResult['generated_summary'] ?? null,
-                    'petition_draft' => $analysisResult['petition_draft'] ?? null,
+                    'petition_draft' => $petitionEnabled ? ($analysisResult['petition_draft'] ?? null) : null,
                     'similar_hazards' => $similarHazards
                 ]
             ]);

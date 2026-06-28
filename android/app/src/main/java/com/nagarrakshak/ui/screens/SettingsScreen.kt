@@ -30,6 +30,14 @@ import androidx.compose.ui.platform.LocalContext
 
 @Composable
 fun SettingsScreen(
+    onNavigateToPersonalInfo: () -> Unit,
+    onNavigateToChangePassword: () -> Unit,
+    onNavigateToAccountSecurity: () -> Unit,
+    onNavigateToVerificationDetails: () -> Unit,
+    onNavigateToNotifications: () -> Unit,
+    onNavigateToLocationSettings: () -> Unit,
+    onNavigateToDataUsage: () -> Unit,
+    onNavigateToVoiceSounds: () -> Unit,
     onBackClicked: () -> Unit,
     onLogout: () -> Unit
 ) {
@@ -231,28 +239,32 @@ fun SettingsScreen(
                             title = "Personal Information",
                             description = "Update your name, email, phone number",
                             iconContent = { UserIcon(color = Color(0xFF16A34A)) },
-                            iconBgColor = Color(0xFFDCFCE7)
+                            iconBgColor = Color(0xFFDCFCE7),
+                            onClick = onNavigateToPersonalInfo
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF1F5F9))
                         SettingsOptionRow(
                             title = "Change Password",
                             description = "Update your account password",
                             iconContent = { LockIcon(color = Color(0xFF16A34A)) },
-                            iconBgColor = Color(0xFFDCFCE7)
+                            iconBgColor = Color(0xFFDCFCE7),
+                            onClick = onNavigateToChangePassword
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF1F5F9))
                         SettingsOptionRow(
                             title = "Account Security",
                             description = "Manage 2FA, login sessions and security",
                             iconContent = { SettingsShieldIcon(color = Color(0xFF16A34A)) },
-                            iconBgColor = Color(0xFFDCFCE7)
+                            iconBgColor = Color(0xFFDCFCE7),
+                            onClick = onNavigateToAccountSecurity
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF1F5F9))
                         SettingsOptionRow(
                             title = "Verification Details",
                             description = "View and update your verification info",
                             iconContent = { IdCardIcon(color = Color(0xFF16A34A)) },
-                            iconBgColor = Color(0xFFDCFCE7)
+                            iconBgColor = Color(0xFFDCFCE7),
+                            onClick = onNavigateToVerificationDetails
                         )
                     }
                 }
@@ -280,7 +292,8 @@ fun SettingsScreen(
                             title = "Notifications",
                             description = "Manage what you want to be notified about",
                             iconContent = { BellIcon(color = Color(0xFF16A34A)) },
-                            iconBgColor = Color(0xFFDCFCE7)
+                            iconBgColor = Color(0xFFDCFCE7),
+                            onClick = onNavigateToNotifications
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF1F5F9))
                         SettingsOptionRow(
@@ -303,21 +316,24 @@ fun SettingsScreen(
                             title = "Location Settings",
                             description = "Manage location access and accuracy",
                             iconContent = { PinIcon(color = Color(0xFF16A34A)) },
-                            iconBgColor = Color(0xFFDCFCE7)
+                            iconBgColor = Color(0xFFDCFCE7),
+                            onClick = onNavigateToLocationSettings
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF1F5F9))
                         SettingsOptionRow(
                             title = "Data Usage",
                             description = "Manage offline maps and data usage",
                             iconContent = { BarChartIcon(color = Color(0xFF16A34A)) },
-                            iconBgColor = Color(0xFFDCFCE7)
+                            iconBgColor = Color(0xFFDCFCE7),
+                            onClick = onNavigateToDataUsage
                         )
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF1F5F9))
                         SettingsOptionRow(
                             title = "Voice & Sounds",
                             description = "Manage voice guidance and alerts",
                             iconContent = { SpeakerIcon(color = Color(0xFF16A34A)) },
-                            iconBgColor = Color(0xFFDCFCE7)
+                            iconBgColor = Color(0xFFDCFCE7),
+                            onClick = onNavigateToVoiceSounds
                         )
                     }
                 }

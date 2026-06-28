@@ -3,20 +3,22 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Notification;
 use Illuminate\Http\Request;
 
 class NotificationApiController extends Controller
 {
     /**
      * GET /notifications
-     * Fetches user-specific or broadcast notifications.
+     * Fetches all broadcast or announcement notifications.
      */
     public function index()
     {
-        // TODO: Fetch notifications for the user
+        $notifications = Notification::orderBy('created_at', 'desc')->get();
+        
         return response()->json([
             'success' => true,
-            'data' => []
+            'data' => $notifications
         ]);
     }
 
@@ -26,7 +28,7 @@ class NotificationApiController extends Controller
      */
     public function markAsRead($id)
     {
-        // TODO: Mark notification as read
+        // Mock success for read status
         return response()->json([
             'success' => true,
             'message' => 'Notification marked as read'
@@ -39,7 +41,11 @@ class NotificationApiController extends Controller
      */
     public function destroy($id)
     {
-        // TODO: Delete notification
+        $notification = Notification::find($id);
+        if ($notification) {
+            $notification->delete();
+        }
+        
         return response()->json([
             'success' => true,
             'message' => 'Notification deleted successfully'

@@ -20,7 +20,11 @@ Route::post('login', [LoginController::class, 'login']);
 Route::post('logout', [LoginController::class, 'logout'])->name('logout');
 
 // Redirect root to dashboard
-Route::redirect('/', '/admin/dashboard');
+// Route::redirect('/', '/admin/dashboard');
+
+Route::get('/', function () {
+    return view('welcome');
+});
 
 // Admin Panel RoutesProtected by Session Authentication
 Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
@@ -73,6 +77,7 @@ Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
     Route::get('settings', [SettingsController::class, 'index'])->name('settings.index');
     Route::post('settings/alerts', [SettingsController::class, 'updateAlerts'])->name('settings.alerts');
     Route::post('settings/system', [SettingsController::class, 'updateSystem'])->name('settings.system');
+    Route::post('settings/maintenance', [SettingsController::class, 'updateMaintenance'])->name('settings.maintenance');
     Route::post('settings/categories', [SettingsController::class, 'storeCategory'])->name('settings.categories.store');
     Route::post('settings/categories/{id}', [SettingsController::class, 'updateCategory'])->name('settings.categories.update');
     Route::delete('settings/categories/{id}/delete', [SettingsController::class, 'destroyCategory'])->name('settings.categories.destroy');
@@ -85,14 +90,27 @@ Route::prefix('api')->group(function () {
     Route::post('auth/login', [\App\Http\Controllers\Api\AuthApiController::class, 'login']);
     Route::post('auth/google-login', [\App\Http\Controllers\Api\AuthApiController::class, 'googleLogin']);
 
-    // Public Hazards View endpoint (accessible by guest users)
+    // Public Hazards endpoints (accessible by guest and authenticated users)
     Route::get('hazards', [\App\Http\Controllers\Api\HazardApiController::class, 'getHazards']);
+    Route::post('hazards', [\App\Http\Controllers\Api\HazardApiController::class, 'storeHazard']);
 
-    // Authenticated Hazards Write actions
+    // Authenticated actions (verify/resolve/profile/settings require login)
     Route::middleware('api.auth')->group(function () {
-        Route::post('hazards', [\App\Http\Controllers\Api\HazardApiController::class, 'storeHazard']);
         Route::post('hazards/{id}/verify', [\App\Http\Controllers\Api\HazardApiController::class, 'verifyHazard']);
         Route::post('hazards/{id}/resolve', [\App\Http\Controllers\Api\HazardApiController::class, 'resolveHazard']);
+
+        // Profile routes
+        Route::get('profile/stats', [\App\Http\Controllers\Api\ProfileApiController::class, 'stats']);
+        Route::get('profile/reports', [\App\Http\Controllers\Api\ProfileApiController::class, 'reports']);
+        Route::get('profile/saved', [\App\Http\Controllers\Api\ProfileApiController::class, 'savedAlerts']);
+        Route::put('profile', [\App\Http\Controllers\Api\ProfileApiController::class, 'update']);
+        Route::put('profile/password', [\App\Http\Controllers\Api\ProfileApiController::class, 'changePassword']);
+        Route::put('profile/security', [\App\Http\Controllers\Api\ProfileApiController::class, 'updateSecurity']);
+        Route::put('profile/verification', [\App\Http\Controllers\Api\ProfileApiController::class, 'updateVerification']);
+
+        // Settings routes
+        Route::get('settings/preferences', [\App\Http\Controllers\Api\SettingsApiController::class, 'getPreferences']);
+        Route::put('settings/preferences', [\App\Http\Controllers\Api\SettingsApiController::class, 'updatePreferences']);
     });
 
     // AI Processing
@@ -126,9 +144,7 @@ Route::prefix('api')->group(function () {
     Route::put('notifications/{id}/read', [\App\Http\Controllers\Api\NotificationApiController::class, 'markAsRead']);
     Route::delete('notifications/{id}', [\App\Http\Controllers\Api\NotificationApiController::class, 'destroy']);
 
-    // Profile & Settings
-    Route::get('profile/stats', [\App\Http\Controllers\Api\ProfileApiController::class, 'stats']);
-    Route::put('profile', [\App\Http\Controllers\Api\ProfileApiController::class, 'update']);
+    // General app settings
     Route::get('settings', [\App\Http\Controllers\Api\SettingsApiController::class, 'index']);
     Route::put('settings', [\App\Http\Controllers\Api\SettingsApiController::class, 'update']);
 });

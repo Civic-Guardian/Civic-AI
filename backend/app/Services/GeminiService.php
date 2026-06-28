@@ -12,11 +12,14 @@ class GeminiService
     /**
      * Analyze a hazard report image using Gemini AI vision.
      */
-    public function analyzeHazardImage(string $imageBase64, string $mimeType, ?float $latitude = null, ?float $longitude = null): array
+    public function analyzeHazardImage(string $imageBase64, string $mimeType, ?float $latitude = null, ?float $longitude = null, ?string $description = null, ?string $city = null, ?string $userName = null): array
     {
         $startTime = microtime(true);
         $aiSetting = AiSetting::first();
-        $apiKey = $aiSetting ? $aiSetting->api_key : env('GEMINI_API_KEY');
+        $apiKey = ($aiSetting && $aiSetting->api_key) ? $aiSetting->api_key : env('GEMINI_API_KEY');
+        $model = ($aiSetting && $aiSetting->model_name) ? $aiSetting->model_name : 'gemini-2.5-flash';
+        $temperature = ($aiSetting && isset($aiSetting->temperature)) ? (float)$aiSetting->temperature : 0.3;
+        $maxTokens = ($aiSetting && isset($aiSetting->max_tokens)) ? (int)$aiSetting->max_tokens : 2048;
         
         $defaultPrompt = "Analyze this municipal hazard photo. Classify the hazard category into one of: Pothole, Open Drain, Open Manhole, Waterlogging, Broken Streetlight, Garbage. Suggest severity (Low, Medium, High, Critical). Provide a 2-sentence description. Generate a formal petition letter addressed to the Municipal Commissioner, Kota, starting with 'To,\nThe Municipal Commissioner...' demanding resolution.";
         $prompt = ($aiSetting && $aiSetting->classification_prompt) ? $aiSetting->classification_prompt : $defaultPrompt;
@@ -24,6 +27,27 @@ class GeminiService
         // Add location context if provided
         if ($latitude && $longitude) {
             $prompt .= "\nLocation Coordinates: {$latitude}, {$longitude}";
+        }
+
+        // Add user description if provided
+        if ($description) {
+            $prompt .= "\nUser Description Context: {$description}";
+        }
+
+        // Add city context and replace defaults in prompt
+        if ($city) {
+            $prompt = str_replace(", Kota", ", {$city}", $prompt);
+            $prompt = str_replace(" Kota ", " {$city} ", $prompt);
+            $prompt .= "\nLocation / City Context: {$city}. Please address the petition letter specifically to the Municipal Commissioner of this city/location.";
+        } else {
+            $prompt .= "\nPlease address the petition letter to the Municipal Commissioner of the location shown/detected.";
+        }
+
+        // Add user name context
+        if ($userName) {
+            $prompt .= "\nThe citizen reporting this is: {$userName}. Please sign/end the petition letter using this name (e.g. 'Sincerely, {$userName}' or similar).";
+        } else {
+            $prompt .= "\nPlease sign/end the petition letter as 'Sincerely, A Concerned Citizen'.";
         }
         
         $prompt .= "\nReturn JSON with schema: {predicted_category: string, predicted_severity: string, confidence_score: double, generated_summary: string, petition_draft: string}";
@@ -45,8 +69,8 @@ class GeminiService
         }
 
         try {
-            // Call actual Gemini 1.5 Flash API with vision capabilities
-            $response = Http::post("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$apiKey}", [
+            // Call actual Gemini API with vision capabilities
+            $response = Http::post("https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}", [
                 'contents' => [
                     [
                         'parts' => [
@@ -61,7 +85,9 @@ class GeminiService
                     ]
                 ],
                 'generationConfig' => [
-                    'responseMimeType' => 'application/json'
+                    'responseMimeType' => 'application/json',
+                    'temperature' => $temperature,
+                    'maxOutputTokens' => $maxTokens,
                 ]
             ]);
 
@@ -96,8 +122,11 @@ class GeminiService
     {
         $startTime = microtime(true);
         $aiSetting = AiSetting::first();
-        $apiKey = $aiSetting ? $aiSetting->api_key : env('GEMINI_API_KEY');
+        $apiKey = ($aiSetting && $aiSetting->api_key) ? $aiSetting->api_key : env('GEMINI_API_KEY');
         $prompt = ($aiSetting && $aiSetting->classification_prompt) ? $aiSetting->classification_prompt : 'Classify this civic hazard.';
+        $model = ($aiSetting && $aiSetting->model_name) ? $aiSetting->model_name : 'gemini-2.5-flash';
+        $temperature = ($aiSetting && isset($aiSetting->temperature)) ? (float)$aiSetting->temperature : 0.3;
+        $maxTokens = ($aiSetting && isset($aiSetting->max_tokens)) ? (int)$aiSetting->max_tokens : 2048;
         $confidenceThreshold = $aiSetting ? (float) $aiSetting->confidence_threshold : 0.7;
 
         // Fallback result in case API key is missing or request fails
@@ -116,8 +145,8 @@ class GeminiService
         }
 
         try {
-            // Call actual Gemini 1.5 Flash API
-            $response = Http::post("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={$apiKey}", [
+            // Call actual Gemini API
+            $response = Http::post("https://generativelanguage.googleapis.com/v1beta/models/{$model}:generateContent?key={$apiKey}", [
                 'contents' => [
                     [
                         'parts' => [
@@ -126,7 +155,9 @@ class GeminiService
                     ]
                 ],
                 'generationConfig' => [
-                    'responseMimeType' => 'application/json'
+                    'responseMimeType' => 'application/json',
+                    'temperature' => $temperature,
+                    'maxOutputTokens' => $maxTokens,
                 ]
             ]);
 

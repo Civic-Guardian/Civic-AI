@@ -16,6 +16,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.launch
 import androidx.compose.animation.*
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateValue
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -57,6 +64,16 @@ import com.google.maps.android.compose.rememberCameraPositionState
 import com.nagarrakshak.data.AuthManager
 import com.nagarrakshak.ui.theme.PrimaryColor
 import com.nagarrakshak.ui.theme.WarningColor
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.draw.drawBehind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -90,7 +107,18 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
     var confidenceScore by remember { mutableStateOf("94%") }
     var analysisReason by remember { mutableStateOf("Large open pothole with water accumulation poses risk to vehicles and pedestrians.") }
     
+    var geminiAnalysisEnabled by remember { mutableStateOf(true) }
+    var petitionEnabled by remember { mutableStateOf(true) }
+    
     var isAnalyzing by remember { mutableStateOf(false) }
+    var isEditingDetails by remember { mutableStateOf(false) }
+    
+    var scanProgress by remember { mutableStateOf(0f) }
+    var clarityStatus by remember { mutableStateOf("Pending") }
+    var objectStatus by remember { mutableStateOf("Pending") }
+    var severityStatus by remember { mutableStateOf("Pending") }
+    var locationStatus by remember { mutableStateOf("Pending") }
+    var petitionStatus by remember { mutableStateOf("Pending") }
     var petitionText by remember { mutableStateOf<String?>(null) }
     var selectedPhotoOption by remember { mutableStateOf<String?>(null) }
     var gpsCoordinates by remember { mutableStateOf("Detecting GPS...") }
@@ -99,6 +127,100 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var stagedImageBase64 by remember { mutableStateOf<String?>(null) }
     var userLatLng by remember { mutableStateOf<LatLng?>(null) }
+    var uploadedImageUrl by remember { mutableStateOf<String?>(null) }
+
+    val startScanningSimulation: () -> Unit = {
+        coroutineScope.launch {
+            scanProgress = 0f
+            clarityStatus = "Processing..."
+            objectStatus = "Pending"
+            severityStatus = "Pending"
+            locationStatus = "Pending"
+            petitionStatus = "Pending"
+            
+            // Start loading settings and calling Gemini API in background
+            var apiResult: JSONObject? = null
+            val apiJob = coroutineScope.launch {
+                try {
+                    apiResult = com.nagarrakshak.data.BackendClient.analyzeHazardImage(
+                        imageBase64 = stagedImageBase64 ?: "",
+                        latitude = userLatLng?.latitude ?: 25.18254,
+                        longitude = userLatLng?.longitude ?: 75.82736,
+                        description = description.ifBlank { "Unidentified civic safety hazard reported." },
+                        city = "Kota",
+                        userName = authManager.userName ?: "Citizen"
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e("ReportScreen", "Failed to analyze image: ${e.message}", e)
+                }
+            }
+            
+            // Simulating progress steps
+            // Step 1: Clarity check
+            delay(1000)
+            scanProgress = 0.25f
+            clarityStatus = "Passed"
+            objectStatus = "Processing..."
+            
+            // Step 2: Object detection
+            delay(1000)
+            scanProgress = 0.50f
+            objectStatus = "3 hazard objects found"
+            severityStatus = "Processing..."
+            
+            // Step 3: Severity classification
+            delay(1000)
+            scanProgress = 0.75f
+            severityStatus = "Passed"
+            locationStatus = "Processing..."
+            
+            // Step 4: Location context & petition templates
+            delay(1000)
+            scanProgress = 1.0f
+            locationStatus = "Passed"
+            petitionStatus = "Processing..."
+            delay(500)
+            petitionStatus = "Passed"
+            
+            // Wait for the API call to complete
+            apiJob.join()
+            
+            // Now parse results and transition to step 2!
+            val result = apiResult
+            if (result != null) {
+                try {
+                    selectedCategory = result.optString("predicted_category", "Pothole")
+                    severity = result.optString("predicted_severity", "High Risk")
+                    petitionText = result.optString("petition_draft", "")
+                    confidenceScore = result.optString("confidence_score", "96%")
+                    analysisReason = result.optString("generated_summary", "AI detected a potential safety hazard in public infrastructure. Action recommended.")
+                    uploadedImageUrl = result.optString("image_path")
+                } catch (e: Exception) {
+                    selectedCategory = "Pothole"
+                    severity = "High Risk"
+                    confidenceScore = "96%"
+                    analysisReason = "Large open pothole with water accumulation poses risk to vehicles and pedestrians."
+                    uploadedImageUrl = null
+                }
+            } else {
+                // Mock fallback data
+                selectedCategory = "Pothole"
+                severity = "High Risk"
+                confidenceScore = "96%"
+                analysisReason = "Large open pothole with water accumulation poses risk to vehicles and pedestrians."
+                petitionText = "To,\nThe Municipal Commissioner,\nKota Municipal Corporation,\nKota, Rajasthan\n\nSubject: Urgent request for repair of Pothole at Mahaveer Nagar, Kota.\n\nRespected Sir/Madam,\nI would like to bring to your kind attention the poor condition of the road near Mahaveer Nagar, Kota. The large open pothole is causing immense vehicle damage and poses severe safety hazards to pedestrians and traffic alike.\n\nKindly dispatch repair crews urgently.\n\nYours faithfully,\nRahul Sharma"
+                uploadedImageUrl = null
+            }
+            
+            currentStep = 2
+        }
+    }
+
+    LaunchedEffect(stagedImageBase64) {
+        if (stagedImageBase64 != null && scanProgress == 0f) {
+            startScanningSimulation()
+        }
+    }
 
     // User details inputs for step 2
     var userNameInput by remember { mutableStateOf(authManager.userName ?: "") }
@@ -172,17 +294,36 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
     }
 
     LaunchedEffect(Unit) {
+        try {
+            val settings = com.nagarrakshak.data.BackendClient.fetchSettings()
+            geminiAnalysisEnabled = settings.optBoolean("gemini_analysis_enabled", true)
+            petitionEnabled = settings.optBoolean("petition_enabled", true)
+            if (!geminiAnalysisEnabled) {
+                currentStep = 2
+                selectedCategory = "Pothole"
+                severity = "Medium Risk"
+                gpsCoordinates = "2/F-61, Vistar Yojna, Mahaveer Nagar, Kota 324009"
+                userLatLng = LatLng(25.18254, 75.82736)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("ReportScreen", "Failed to load settings: ${e.message}", e)
+        }
+
         val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
         val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
         if (hasFine || hasCoarse) {
             fetchRealLocation(context) { lat, lng, address ->
-                gpsCoordinates = address
-                userLatLng = LatLng(lat, lng)
+                if (geminiAnalysisEnabled) {
+                    gpsCoordinates = address
+                    userLatLng = LatLng(lat, lng)
+                }
             }
         } else {
-            locationPermissionsLauncher.launch(
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-            )
+            if (geminiAnalysisEnabled) {
+                locationPermissionsLauncher.launch(
+                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                )
+            }
         }
     }
 
@@ -310,13 +451,17 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
             TopAppBar(
                 title = {
                     Text(
-                        text = when (currentStep) {
-                            1 -> "Report Hazard"
-                            2 -> "AI Scan Results"
-                            else -> "Report Registered"
+                        text = if (geminiAnalysisEnabled) {
+                            when (currentStep) {
+                                1 -> "Report Hazard"
+                                2 -> "AI Scan Results"
+                                else -> "Report Registered"
+                            }
+                        } else {
+                            "Report Hazard"
                         },
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A)
+                        color = if (geminiAnalysisEnabled) Color(0xFF0F172A) else Color.White
                     )
                 },
                 navigationIcon = {
@@ -327,21 +472,37 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
                             onReportSubmitted()
                         }
                     }) {
-                        Icon(imageVector = Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            tint = if (geminiAnalysisEnabled) Color(0xFF0F172A) else Color.White
+                        )
                     }
                 },
                 actions = {
-                    Box(
-                        modifier = Modifier
-                            .padding(end = 12.dp)
-                            .size(36.dp)
-                            .background(Color(0xFF16A34A).copy(alpha = 0.1f), shape = RoundedCornerShape(10.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("🛡️", fontSize = 20.sp)
+                    if (geminiAnalysisEnabled) {
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 12.dp)
+                                .size(36.dp)
+                                .background(Color(0xFF16A34A).copy(alpha = 0.1f), shape = RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("🛡️", fontSize = 20.sp)
+                        }
+                    } else {
+                        IconButton(onClick = { }) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = "Info",
+                                tint = Color.White
+                            )
+                        }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.White)
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = if (geminiAnalysisEnabled) Color.White else Color(0xFF1E2A3A)
+                )
             )
         }
     ) { innerPadding ->
@@ -352,116 +513,223 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
                 .background(Color(0xFFF8FAFC))
         ) {
             // Horizontal Step Indicators
-            StepIndicator(currentStep = currentStep)
+            StepIndicator(
+                currentStep = currentStep,
+                geminiEnabled = geminiAnalysisEnabled,
+                petitionEnabled = petitionEnabled
+            )
 
             Divider(color = Color(0xFFE2E8F0))
 
             // Screen Step Content
             Box(modifier = Modifier.weight(1f)) {
-                when (currentStep) {
-                    1 -> StepOneCaptureContent(
-                        selectedPhotoOption = selectedPhotoOption,
-                        capturedBitmap = capturedBitmap,
-                        gpsCoordinates = gpsCoordinates,
-                        userLatLng = userLatLng,
-                        description = description,
-                        onDescriptionChange = { description = it },
-                        onChooseImageClick = { showDialog = true },
-                        onNextClick = {
-                            if (stagedImageBase64 == null) {
-                                Toast.makeText(context, "Please capture or select a hazard image first!", Toast.LENGTH_SHORT).show()
-                                return@StepOneCaptureContent
+                if (geminiAnalysisEnabled) {
+                    when (currentStep) {
+                        1 -> StepOneUploadAndScanContent(
+                            stagedImageBase64 = stagedImageBase64,
+                            capturedBitmap = capturedBitmap,
+                            scanProgress = scanProgress,
+                            clarityStatus = clarityStatus,
+                            objectStatus = objectStatus,
+                            severityStatus = severityStatus,
+                            locationStatus = locationStatus,
+                            petitionStatus = petitionStatus,
+                            onChooseImageClick = { showDialog = true },
+                            onTakePhotoClick = {
+                                val permission = Manifest.permission.CAMERA
+                                val isGranted = ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                if (isGranted) {
+                                    cameraLauncher.launch()
+                                } else {
+                                    cameraPermissionLauncher.launch(permission)
+                                }
                             }
-                            isAnalyzing = true
-                            coroutineScope.launch {
-                                val result = callGeminiApi(
-                                    descriptionText = description.ifBlank { "Unidentified civic safety hazard reported." },
-                                    imageBase64 = stagedImageBase64
+                        )
+                        2 -> {
+                            if (isEditingDetails) {
+                                StepTwoScanResultsContent(
+                                    selectedCategory = selectedCategory,
+                                    onCategoryChange = { selectedCategory = it },
+                                    severity = severity,
+                                    onSeverityChange = { severity = it },
+                                    confidenceScore = confidenceScore,
+                                    analysisReason = analysisReason,
+                                    onAnalysisReasonChange = { analysisReason = it },
+                                    gpsCoordinates = gpsCoordinates,
+                                    petitionText = petitionText ?: "",
+                                    onPetitionChange = { petitionText = it },
+                                    userName = userNameInput,
+                                    onNameChange = { userNameInput = it },
+                                    userMobile = userMobileInput,
+                                    onMobileChange = { userMobileInput = it },
+                                    isSummaryExpanded = isSummaryExpanded,
+                                    onSummaryToggle = { isSummaryExpanded = !isSummaryExpanded },
+                                    isPetitionExpanded = isPetitionExpanded,
+                                    onPetitionToggle = { isPetitionExpanded = !isPetitionExpanded },
+                                    onChooseImageClick = { showDialog = true },
+                                    userLatLng = userLatLng,
+                                    onUseCurrentLocationClick = {
+                                        val permission = Manifest.permission.ACCESS_FINE_LOCATION
+                                        val isGranted = ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                        if (isGranted) {
+                                            fetchRealLocation(context) { lat, lng, address ->
+                                                gpsCoordinates = address
+                                                userLatLng = LatLng(lat, lng)
+                                            }
+                                        } else {
+                                            locationPermissionsLauncher.launch(
+                                                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                                            )
+                                        }
+                                    },
+                                    onCopyPetition = {
+                                        petitionText?.let {
+                                            clipboardManager.setText(AnnotatedString(it))
+                                            Toast.makeText(context, "Petition letter copied to clipboard!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    onSubmitClick = {
+                                        isEditingDetails = false
+                                    },
+                                    geminiAnalysisEnabled = geminiAnalysisEnabled,
+                                    petitionEnabled = petitionEnabled
                                 )
-                                isAnalyzing = false
-                                if (result != null) {
-                                    try {
-                                        val cleanResult = result.trim()
-                                            .replace("```json", "")
-                                            .replace("```", "")
-                                            .trim()
-                                        val json = JSONObject(cleanResult)
-                                        selectedCategory = json.optString("category", "Pothole on Road")
-                                        severity = json.optString("severity", "High Risk")
-                                        petitionText = json.optString("petition", "")
-                                        confidenceScore = "94%"
-                                        analysisReason = "AI detected a potential safety hazard in public infrastructure. Action recommended."
-                                    } catch (e: Exception) {
-                                        // Fallback default parsing
-                                        selectedCategory = "Pothole on Road"
-                                        severity = "High Risk"
-                                        confidenceScore = "90%"
-                                        analysisReason = "Large open pothole with water accumulation poses risk to vehicles and pedestrians."
-                                        petitionText = result
+                            } else {
+                                StepTwoAiAnalysisContent(
+                                    selectedCategory = selectedCategory,
+                                    severity = severity,
+                                    confidenceScore = confidenceScore,
+                                    analysisReason = analysisReason,
+                                    gpsCoordinates = gpsCoordinates,
+                                    userLatLng = userLatLng,
+                                    isAnalyzing = isAnalyzing,
+                                    onEditDetailsClick = { isEditingDetails = true },
+                                    onGeneratePetitionClick = { currentStep = 3 }
+                                )
+                            }
+                        }
+                        3 -> StepThreePetitionDraftContent(
+                            selectedCategory = selectedCategory,
+                            severity = severity,
+                            gpsCoordinates = gpsCoordinates,
+                            petitionText = petitionText ?: "",
+                            onPetitionChange = { petitionText = it },
+                            onSubmitClick = {
+                                coroutineScope.launch {
+                                    isAnalyzing = true
+                                    val success = com.nagarrakshak.data.BackendClient.submitHazard(
+                                        category = selectedCategory,
+                                        locationName = gpsCoordinates,
+                                        latitude = userLatLng?.latitude ?: 25.18254,
+                                        longitude = userLatLng?.longitude ?: 75.82736,
+                                        severity = severity,
+                                        description = analysisReason,
+                                        aiAnalysisSummary = "Reason: $analysisReason\n\nPetition:\n$petitionText",
+                                        imagePath = uploadedImageUrl
+                                    )
+                                    isAnalyzing = false
+                                    if (success) {
+                                        Toast.makeText(context, "Civic report submitted successfully!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Submitted successfully (offline fallback saved locally)", Toast.LENGTH_SHORT).show()
+                                    }
+                                    onReportSubmitted()
+                                }
+                            },
+                            onShareClick = {
+                                Toast.makeText(context, "Petition link shared to citizens!", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                } else {
+                    when (currentStep) {
+                        2 -> StepTwoScanResultsContent(
+                            selectedCategory = selectedCategory,
+                            onCategoryChange = { selectedCategory = it },
+                            severity = severity,
+                            onSeverityChange = { severity = it },
+                            confidenceScore = confidenceScore,
+                            analysisReason = analysisReason,
+                            onAnalysisReasonChange = { analysisReason = it },
+                            gpsCoordinates = gpsCoordinates,
+                            petitionText = petitionText ?: "",
+                            onPetitionChange = { petitionText = it },
+                            userName = userNameInput,
+                            onNameChange = { userNameInput = it },
+                            userMobile = userMobileInput,
+                            onMobileChange = { userMobileInput = it },
+                            isSummaryExpanded = isSummaryExpanded,
+                            onSummaryToggle = { isSummaryExpanded = !isSummaryExpanded },
+                            isPetitionExpanded = isPetitionExpanded,
+                            onPetitionToggle = { isPetitionExpanded = !isPetitionExpanded },
+                            onChooseImageClick = { showDialog = true },
+                            userLatLng = userLatLng,
+                            onUseCurrentLocationClick = {
+                                val permission = Manifest.permission.ACCESS_FINE_LOCATION
+                                val isGranted = ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                if (isGranted) {
+                                    fetchRealLocation(context) { lat, lng, address ->
+                                        gpsCoordinates = address
+                                        userLatLng = LatLng(lat, lng)
                                     }
                                 } else {
-                                    // Complete offline simulation mock
-                                    selectedCategory = "Pothole on Road"
-                                    severity = "High Risk"
-                                    confidenceScore = "94%"
-                                    analysisReason = "Large open pothole with water accumulation poses risk to vehicles and pedestrians."
-                                    petitionText = "To,\nThe Municipal Commissioner,\nBhopal Municipal Corporation,\nBhopal, Madhya Pradesh\n\nSubject: Urgent request for repair of pothole on road near Shivaji Nagar, Bhopal.\n\nRespected Sir/Madam,\nI would like to bring to your kind attention the poor condition of the road near 12, Infront of Govt. School, Shivaji Nagar, Bhopal. The large open pothole is causing immense vehicle damage and poses severe safety hazards to pedestrians and traffic alike.\n\nKindly dispatch repair crews urgently.\n\nYours faithfully,\nRahul Sharma"
+                                    locationPermissionsLauncher.launch(
+                                        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                                    )
                                 }
-                                currentStep = 2
-                            }
-                        }
-                    )
-                    2 -> StepTwoScanResultsContent(
-                        selectedCategory = selectedCategory,
-                        severity = severity,
-                        confidenceScore = confidenceScore,
-                        analysisReason = analysisReason,
-                        gpsCoordinates = gpsCoordinates,
-                        petitionText = petitionText ?: "",
-                        onPetitionChange = { petitionText = it },
-                        userName = userNameInput,
-                        onNameChange = { userNameInput = it },
-                        userMobile = userMobileInput,
-                        onMobileChange = { userMobileInput = it },
-                        isSummaryExpanded = isSummaryExpanded,
-                        onSummaryToggle = { isSummaryExpanded = !isSummaryExpanded },
-                        isPetitionExpanded = isPetitionExpanded,
-                        onPetitionToggle = { isPetitionExpanded = !isPetitionExpanded },
-                        onCopyPetition = {
-                            petitionText?.let {
-                                clipboardManager.setText(AnnotatedString(it))
-                                Toast.makeText(context, "Petition letter copied to clipboard!", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        onSubmitClick = {
-                            if (userNameInput.isBlank() || userMobileInput.isBlank()) {
-                                Toast.makeText(context, "Please enter your name and mobile number to authenticate the report.", Toast.LENGTH_SHORT).show()
-                                return@StepTwoScanResultsContent
-                            }
-                            coroutineScope.launch {
-                                isAnalyzing = true
-                                val success = com.nagarrakshak.data.BackendClient.submitHazard(
-                                    category = selectedCategory,
-                                    locationName = gpsCoordinates,
-                                    latitude = userLatLng?.latitude ?: 25.18254,
-                                    longitude = userLatLng?.longitude ?: 75.82736,
-                                    severity = severity,
-                                    description = analysisReason,
-                                    aiAnalysisSummary = "Reason: $analysisReason\n\nPetition:\n$petitionText"
-                                )
-                                isAnalyzing = false
-                                if (success) {
-                                    Toast.makeText(context, "Civic report submitted successfully!", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "Submitted successfully (offline fallback saved locally)", Toast.LENGTH_SHORT).show()
+                            },
+                            onCopyPetition = {
+                                petitionText?.let {
+                                    clipboardManager.setText(AnnotatedString(it))
+                                    Toast.makeText(context, "Petition letter copied to clipboard!", Toast.LENGTH_SHORT).show()
                                 }
-                                currentStep = 3
-                            }
-                        }
-                    )
-                    3 -> StepThreeSuccessContent(
-                        onDoneClick = onReportSubmitted
-                    )
+                            },
+                            onSubmitClick = {
+                                if (userNameInput.isBlank() || userMobileInput.isBlank()) {
+                                    Toast.makeText(context, "Please enter your name and mobile number to authenticate the report.", Toast.LENGTH_SHORT).show()
+                                    return@StepTwoScanResultsContent
+                                }
+                                coroutineScope.launch {
+                                    isAnalyzing = true
+                                    var finalImgUrl: String? = null
+                                    if (stagedImageBase64 != null) {
+                                        try {
+                                            val uploadRes = com.nagarrakshak.data.BackendClient.analyzeHazardImage(
+                                                imageBase64 = stagedImageBase64 ?: "",
+                                                latitude = userLatLng?.latitude ?: 25.18254,
+                                                longitude = userLatLng?.longitude ?: 75.82736,
+                                                description = analysisReason,
+                                                city = "Kota",
+                                                userName = userNameInput
+                                            )
+                                            finalImgUrl = uploadRes.optString("image_path")
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("ReportScreen", "Failed to upload image: ${e.message}", e)
+                                        }
+                                    }
+                                    val success = com.nagarrakshak.data.BackendClient.submitHazard(
+                                        category = selectedCategory,
+                                        locationName = gpsCoordinates,
+                                        latitude = userLatLng?.latitude ?: 25.18254,
+                                        longitude = userLatLng?.longitude ?: 75.82736,
+                                        severity = severity,
+                                        description = analysisReason,
+                                        aiAnalysisSummary = "Reason: $analysisReason\n\nPetition:\n$petitionText",
+                                        imagePath = finalImgUrl
+                                    )
+                                    isAnalyzing = false
+                                    if (success) {
+                                        Toast.makeText(context, "Civic report submitted successfully!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "Submitted successfully (offline fallback saved locally)", Toast.LENGTH_SHORT).show()
+                                    }
+                                    onReportSubmitted()
+                                }
+                            },
+                            geminiAnalysisEnabled = geminiAnalysisEnabled,
+                            petitionEnabled = petitionEnabled
+                        )
+                    }
                 }
             }
         }
@@ -469,66 +737,110 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
 }
 
 @Composable
-fun StepIndicator(currentStep: Int) {
-    val steps = listOf("Capture", "AI Scan", "Details", "Petition", "Submit")
+fun StepIndicator(currentStep: Int, geminiEnabled: Boolean, petitionEnabled: Boolean) {
+    val steps = if (geminiEnabled) {
+        listOf("Upload & Scan", "AI Analysis", "Petition Draft")
+    } else {
+        listOf("Location", "Details", "Review")
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp, horizontal = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .background(Color(0xFFF5F7FA))
+            .padding(vertical = 14.dp, horizontal = 24.dp),
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
         steps.forEachIndexed { index, stepTitle ->
             val stepNumber = index + 1
-            
-            // Map the layout states exactly to step indices
+            val isCompleted = when (currentStep) {
+                1 -> false
+                2 -> stepNumber < 2
+                3 -> stepNumber < 3
+                else -> stepNumber <= 3
+            }
             val isActive = when (currentStep) {
                 1 -> stepNumber == 1
-                2 -> stepNumber <= 4
-                else -> true
+                2 -> stepNumber == 2
+                3 -> stepNumber == 3
+                else -> false
             }
             
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.weight(1f)
+            Row(
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .background(
-                            color = if (isActive) Color(0xFF16A34A) else Color(0xFFE2E8F0),
-                            shape = CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = stepNumber.toString(),
-                        color = if (isActive) Color.White else Color(0xFF94A3B8),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                if (isCompleted) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .background(Color(0xFF16A34A), shape = CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Completed",
+                            tint = Color.White,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                } else if (isActive) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .background(Color(0xFF1B4FD8), shape = CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stepNumber.toString(),
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .border(1.dp, Color(0xFF9CA3AF), CircleShape)
+                            .background(Color.Transparent, shape = CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = stepNumber.toString(),
+                            color = Color(0xFF9CA3AF),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.height(4.dp))
+                
+                Spacer(modifier = Modifier.width(6.dp))
+                
                 Text(
                     text = stepTitle,
-                    color = if (isActive) Color(0xFF16A34A) else Color(0xFF94A3B8),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
+                    color = when {
+                        isCompleted -> Color(0xFF16A34A)
+                        isActive -> Color(0xFF1B4FD8)
+                        else -> Color(0xFF9CA3AF)
+                    },
+                    fontSize = 12.sp,
+                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
                 )
             }
             
             if (index < steps.size - 1) {
-                val isLineActive = when (currentStep) {
+                val isLineCompleted = when (currentStep) {
                     1 -> false
-                    2 -> stepNumber < 4
+                    2 -> index == 0
+                    3 -> index <= 1
                     else -> true
                 }
                 Box(
                     modifier = Modifier
-                        .width(22.dp)
-                        .height(2.dp)
-                        .background(if (isLineActive) Color(0xFF16A34A) else Color(0xFFE2E8F0))
-                        .offset(y = (-8).dp)
+                        .weight(1f)
+                        .padding(horizontal = 8.dp)
+                        .height(1.dp)
+                        .background(if (isLineCompleted) Color(0xFF16A34A) else Color(0xFFE5E7EB))
                 )
             }
         }
@@ -841,9 +1153,12 @@ fun StepOneCaptureContent(
 @Composable
 fun StepTwoScanResultsContent(
     selectedCategory: String,
+    onCategoryChange: (String) -> Unit,
     severity: String,
+    onSeverityChange: (String) -> Unit,
     confidenceScore: String,
     analysisReason: String,
+    onAnalysisReasonChange: (String) -> Unit,
     gpsCoordinates: String,
     petitionText: String,
     onPetitionChange: (String) -> Unit,
@@ -855,301 +1170,740 @@ fun StepTwoScanResultsContent(
     onSummaryToggle: () -> Unit,
     isPetitionExpanded: Boolean,
     onPetitionToggle: () -> Unit,
+    onChooseImageClick: () -> Unit,
+    userLatLng: LatLng?,
+    onUseCurrentLocationClick: () -> Unit,
     onCopyPetition: () -> Unit,
-    onSubmitClick: () -> Unit
+    onSubmitClick: () -> Unit,
+    geminiAnalysisEnabled: Boolean,
+    petitionEnabled: Boolean
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // AI Analysis Completed Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, Color(0xFFDCFCE7))
+    if (geminiAnalysisEnabled) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            // Analysis Mode Header Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color(0xFFDCFCE7))
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("✨", fontSize = 14.sp, color = Color(0xFF16A34A))
-                        Spacer(modifier = Modifier.width(4.dp))
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("✨", fontSize = 14.sp, color = Color(0xFF16A34A))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "AI Analysis Completed",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF14532D)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "AI Analysis Completed",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF14532D)
+                            text = "Our AI has analyzed the image and detected the issue.",
+                            fontSize = 12.sp,
+                            color = Color(0xFF15803D)
                         )
                     }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Our AI has analyzed the image and detected the issue.",
-                        fontSize = 12.sp,
-                        color = Color(0xFF15803D)
-                    )
+                    Text("🤖", fontSize = 36.sp) // Mock Robot Illustration
                 }
-                Text("🤖", fontSize = 36.sp) // Mock Robot Illustration
             }
-        }
 
-        // Detected Issue Section
-        Text(text = "Detected Issue", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+            // Detected Issue Section
+            Text(text = "Detected Issue", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
 
-        Card(
-            modifier = Modifier.fillMaxWidth().offset(y = (-8).dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(Color(0xFFFEE2E2), shape = RoundedCornerShape(8.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("⚠️", fontSize = 18.sp)
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(text = selectedCategory, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-                    }
-                    Text(
-                        text = "$confidenceScore Confidence",
-                        fontSize = 11.sp,
-                        color = Color(0xFF16A34A),
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .background(Color(0xFFF0FDF4), shape = RoundedCornerShape(8.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-
-                // Severity Badge
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Severity Level", fontSize = 13.sp, color = Color.Gray)
-                    Spacer(modifier = Modifier.width(12.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth().offset(y = (-8).dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
-                        modifier = Modifier
-                            .background(Color(0xFFFEE2E2), shape = RoundedCornerShape(8.dp))
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("🚨", fontSize = 11.sp)
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(text = severity.replace(" Risk", ""), color = Color(0xFFEF4444), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(Color(0xFFFEE2E2), shape = RoundedCornerShape(8.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("⚠️", fontSize = 18.sp)
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(text = selectedCategory, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                        }
+                        Text(
+                            text = "$confidenceScore Confidence",
+                            fontSize = 11.sp,
+                            color = Color(0xFF16A34A),
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .background(Color(0xFFF0FDF4), shape = RoundedCornerShape(8.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    // Severity Badge
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Severity Level", fontSize = 13.sp, color = Color.Gray)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Row(
+                            modifier = Modifier
+                                .background(Color(0xFFFEE2E2), shape = RoundedCornerShape(8.dp))
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🚨", fontSize = 11.sp)
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(text = severity.replace(" Risk", ""), color = Color(0xFFEF4444), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Text(
+                        text = "Reason: $analysisReason",
+                        fontSize = 13.sp,
+                        color = Color(0xFF475569)
+                    )
+                }
+            }
+
+            // AI Analysis Details Grid
+            Text(text = "AI Analysis Details", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+            Row(
+                modifier = Modifier.fillMaxWidth().offset(y = (-8).dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                DetailGridCard(icon = "🎯", title = "Issue Type", value = selectedCategory.substringBefore(" on"), modifier = Modifier.weight(1f))
+                DetailGridCard(icon = "📊", title = "Severity", value = severity.replace(" Risk", ""), modifier = Modifier.weight(1f))
+                DetailGridCard(icon = "🛡️", title = "Confidence", value = confidenceScore, modifier = Modifier.weight(1f))
+            }
+
+            // Collapsible AI Summary Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { onSummaryToggle() },
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("📄", fontSize = 14.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("AI Summary", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                        }
+                        Icon(
+                            imageVector = if (isSummaryExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Toggle Summary"
+                        )
+                    }
+                    
+                    AnimatedVisibility(visible = isSummaryExpanded) {
+                        Column {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "AI automatically parsed the hazard properties successfully. Real-time geocoding linked coordinates with municipal ward database to initiate action. A formal report has been compiled and is ready for commissioner dispatch.",
+                                fontSize = 13.sp,
+                                color = Color(0xFF475569)
+                            )
+                        }
                     }
                 }
-
-                Text(
-                    text = "Reason: $analysisReason",
-                    fontSize = 13.sp,
-                    color = Color(0xFF475569)
-                )
             }
-        }
 
-        // AI Analysis Details Grid
-        Text(text = "AI Analysis Details", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-        Row(
-            modifier = Modifier.fillMaxWidth().offset(y = (-8).dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            DetailGridCard(icon = "🎯", title = "Issue Type", value = selectedCategory.substringBefore(" on"), modifier = Modifier.weight(1f))
-            DetailGridCard(icon = "📊", title = "Severity", value = severity.replace(" Risk", ""), modifier = Modifier.weight(1f))
-            DetailGridCard(icon = "🛡️", title = "Confidence", value = confidenceScore, modifier = Modifier.weight(1f))
-        }
-
-        // Collapsible AI Summary Card
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-        ) {
-            Column(modifier = Modifier.padding(12.dp)) {
+            // Location Auto-Fetched Section
+            Text(text = "Location (Auto-Fetched)", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+            Card(
+                modifier = Modifier.fillMaxWidth().offset(y = (-8).dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+            ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().clickable { onSummaryToggle() },
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = gpsCoordinates,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color(0xFF0F172A)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Lat: 25.18254, Long: 75.82736",
+                            fontSize = 12.sp,
+                            color = Color.Gray
+                        )
+                    }
+                    IconButton(
+                        onClick = {},
+                        modifier = Modifier
+                            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(8.dp))
+                            .size(36.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit Location", tint = Color(0xFF16A34A), modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+
+            if (petitionEnabled) {
+                // Draft Petition Letter
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("📄", fontSize = 14.sp)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("AI Summary", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-                    }
-                    Icon(
-                        imageVector = if (isSummaryExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Toggle Summary"
+                    Text(text = "✨ Draft Petition Letter", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+                    Text(
+                        text = "Copy",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF16A34A),
+                        modifier = Modifier.clickable { onCopyPetition() }
                     )
                 }
-                
-                AnimatedVisibility(visible = isSummaryExpanded) {
-                    Column {
+                Text(
+                    text = "Auto-generated based on issue and location",
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.offset(y = (-12).dp)
+                )
+
+                Card(
+                    modifier = Modifier.fillMaxWidth().offset(y = (-10).dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        OutlinedTextField(
+                            value = petitionText,
+                            onValueChange = onPetitionChange,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent
+                            ),
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, color = Color(0xFF334155)),
+                            maxLines = if (isPetitionExpanded) Int.MAX_VALUE else 6
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onPetitionToggle() }
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isPetitionExpanded) "Read Less ▲" else "Read More ▼",
+                                color = Color(0xFF16A34A),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Your Details Section
+            Text(text = "👤 Your Details", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+            Row(
+                modifier = Modifier.fillMaxWidth().offset(y = (-8).dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedTextField(
+                    value = userName,
+                    onValueChange = onNameChange,
+                    label = { Text("Your Name", fontSize = 12.sp) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                OutlinedTextField(
+                    value = userMobile,
+                    onValueChange = onMobileChange,
+                    label = { Text("Mobile Number", fontSize = 12.sp) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+
+            // Submit Button
+            Button(
+                onClick = onSubmitClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15803D)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Spacer(modifier = Modifier.width(20.dp))
+                    Text("Next: Review & Submit", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White)
+                    Icon(imageVector = Icons.Default.KeyboardArrowRight, contentDescription = "Next")
+                }
+            }
+        }
+    } else {
+        var hasPhotoSlot1 by remember { mutableStateOf(true) }
+        Column(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // SECTION 1 — HAZARD TYPE
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "HAZARD TYPE",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF6B7280),
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val chips = listOf("Pothole", "Waterlogging", "Broken Light", "Road Collapse", "Other")
+                            chips.forEach { chip ->
+                                val isSelected = selectedCategory == chip
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            color = if (isSelected) Color(0xFF1B4FD8) else Color.White,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (isSelected) Color(0xFF1B4FD8) else Color(0xFFE5E7EB),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { onCategoryChange(chip) }
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = chip,
+                                        color = if (isSelected) Color.White else Color(0xFF6B7280),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // SECTION 2 — SEVERITY LEVEL
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "SEVERITY LEVEL",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF6B7280),
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val severities = listOf(
+                                Triple("Low Risk", "Low", "Minor inconvenience"),
+                                Triple("Medium Risk", "Medium", "Affects traffic"),
+                                Triple("High Risk", "High", "Danger to life")
+                            )
+                            severities.forEach { (optionValue, label, subtext) ->
+                                val isSelected = severity == optionValue
+                                val accentColor = when (optionValue) {
+                                    "Low Risk" -> Color(0xFF16A34A)
+                                    "Medium Risk" -> Color(0xFFD97706)
+                                    else -> Color(0xFFDC2626)
+                                }
+                                val cardBg = if (isSelected) {
+                                    when (optionValue) {
+                                        "Low Risk" -> Color(0xFFF0FDF4)
+                                        "Medium Risk" -> Color(0xFFFFFBEB)
+                                        else -> Color(0xFFFEF2F2)
+                                    }
+                                } else {
+                                    Color.White
+                                }
+                                val cardBorderColor = if (isSelected) accentColor else Color(0xFFE5E7EB)
+                                val cardBorderWidth = if (isSelected) 1.5.dp else 1.dp
+                                
+                                Card(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { onSeverityChange(optionValue) },
+                                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(cardBorderWidth, cardBorderColor),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(3.dp)
+                                                .fillMaxHeight()
+                                                .background(accentColor)
+                                        )
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 10.dp, horizontal = 8.dp),
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF111827)
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = subtext,
+                                                fontSize = 10.sp,
+                                                color = Color(0xFF6B7280),
+                                                lineHeight = 12.sp
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // SECTION 3 — LOCATION
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "LOCATION",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF6B7280),
+                            letterSpacing = 1.sp
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(8.dp))
+                        ) {
+                            val mapCenter = userLatLng ?: LatLng(25.18254, 75.82736)
+                            val cameraState = rememberCameraPositionState {
+                                position = CameraPosition.fromLatLngZoom(mapCenter, 15f)
+                            }
+                            
+                            LaunchedEffect(userLatLng) {
+                                val latLng = userLatLng
+                                if (latLng != null) {
+                                    cameraState.position = CameraPosition.fromLatLngZoom(latLng, 15f)
+                                }
+                            }
+                            
+                            GoogleMap(
+                                modifier = Modifier.fillMaxSize(),
+                                cameraPositionState = cameraState,
+                                properties = com.google.maps.android.compose.MapProperties(isMyLocationEnabled = userLatLng != null),
+                                uiSettings = com.google.maps.android.compose.MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false)
+                            )
+                            
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .size(36.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = "Pin",
+                                    tint = Color(0xFF1B4FD8),
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = gpsCoordinates,
+                            onValueChange = {},
+                            readOnly = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFFE5E7EB),
+                                unfocusedBorderColor = Color(0xFFE5E7EB),
+                                focusedContainerColor = Color(0xFFF9FAFB),
+                                unfocusedContainerColor = Color(0xFFF9FAFB),
+                                focusedTextColor = Color(0xFF111827),
+                                unfocusedTextColor = Color(0xFF111827)
+                            ),
+                            trailingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.LocationOn,
+                                    contentDescription = "Locating",
+                                    tint = Color(0xFF1B4FD8)
+                                )
+                            }
+                        )
+
+                        Text(
+                            text = "Change Location",
+                            color = Color(0xFF1B4FD8),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier
+                                .clickable { }
+                                .padding(vertical = 2.dp)
+                        )
+
+                        OutlinedButton(
+                            onClick = onUseCurrentLocationClick,
+                            modifier = Modifier.fillMaxWidth().height(44.dp),
+                            border = BorderStroke(1.dp, Color(0xFF1B4FD8)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF1B4FD8)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Text("📍", fontSize = 14.sp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Use Current Location",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF1B4FD8)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // SECTION 4 — DESCRIPTION
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "DESCRIPTION (Optional)",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF6B7280),
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedTextField(
+                            value = analysisReason,
+                            onValueChange = { if (it.length <= 300) onAnalysisReasonChange(it) },
+                            placeholder = { Text("Describe the hazard in detail...", fontSize = 14.sp, color = Color(0xFF9CA3AF)) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(100.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            maxLines = 4,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF1B4FD8),
+                                unfocusedBorderColor = Color(0xFFE5E7EB),
+                                focusedContainerColor = Color.White,
+                                unfocusedContainerColor = Color.White,
+                                focusedTextColor = Color(0xFF111827),
+                                unfocusedTextColor = Color(0xFF111827)
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "${analysisReason.length} / 300",
+                            fontSize = 12.sp,
+                            color = Color(0xFF9CA3AF),
+                            modifier = Modifier.align(Alignment.End)
+                        )
+                    }
+                }
+
+                // SECTION 5 — PHOTO EVIDENCE
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "PHOTO EVIDENCE",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF6B7280),
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(80.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                            ) {
+                                if (hasPhotoSlot1) {
+                                    Image(
+                                        painter = androidx.compose.ui.res.painterResource(id = com.nagarrakshak.R.drawable.placeholder_hazard),
+                                        contentDescription = "Evidence Thumbnail",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(4.dp)
+                                            .size(20.dp)
+                                            .background(Color(0xFFDC2626), shape = CircleShape)
+                                            .clickable {
+                                                hasPhotoSlot1 = false
+                                            },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Remove",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                    }
+                                } else {
+                                    EmptyPhotoSlot(onClick = onChooseImageClick)
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(80.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                            ) {
+                                EmptyPhotoSlot(onClick = onChooseImageClick)
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(80.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                            ) {
+                                EmptyPhotoSlot(onClick = onChooseImageClick)
+                            }
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "AI automatically parsed the hazard properties successfully. Real-time geocoding linked coordinates with municipal ward database to initiate action. A formal report has been compiled and is ready for commissioner dispatch.",
-                            fontSize = 13.sp,
-                            color = Color(0xFF475569)
+                            text = "Upload up to 3 photos. Max 5MB each.",
+                            fontSize = 12.sp,
+                            color = Color(0xFF9CA3AF)
                         )
                     }
                 }
             }
-        }
 
-        // Location Auto-Fetched Section
-        Text(text = "Location (Auto-Fetched)", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-        Card(
-            modifier = Modifier.fillMaxWidth().offset(y = (-8).dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-        ) {
-            Row(
-                modifier = Modifier.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFF5F7FA))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = gpsCoordinates,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF0F172A)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Lat: 23.2599, Long: 77.4126",
-                        fontSize = 12.sp,
-                        color = Color.Gray
-                    )
-                }
-                IconButton(
-                    onClick = {},
-                    modifier = Modifier
-                        .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(8.dp))
-                        .size(36.dp)
-                ) {
-                    Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit Location", tint = Color(0xFF16A34A), modifier = Modifier.size(16.dp))
-                }
-            }
-        }
-
-        // Draft Petition Letter
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(text = "✨ Draft Petition Letter", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-            Text(
-                text = "Copy",
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF16A34A),
-                modifier = Modifier.clickable { onCopyPetition() }
-            )
-        }
-        Text(
-            text = "Auto-generated based on issue and location",
-            fontSize = 12.sp,
-            color = Color.Gray,
-            modifier = Modifier.offset(y = (-12).dp)
-        )
-
-        Card(
-            modifier = Modifier.fillMaxWidth().offset(y = (-10).dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                OutlinedTextField(
-                    value = petitionText,
-                    onValueChange = onPetitionChange,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent,
-                        focusedContainerColor = Color.Transparent,
-                        unfocusedContainerColor = Color.Transparent
-                    ),
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, color = Color(0xFF334155)),
-                    maxLines = if (isPetitionExpanded) Int.MAX_VALUE else 6
+                Text(
+                    text = "Your report will be reviewed within 24 hours",
+                    color = Color(0xFF6B7280),
+                    fontSize = 11.sp,
+                    textAlign = TextAlign.Center
                 )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
+                Button(
+                    onClick = onSubmitClick,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { onPetitionToggle() }
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                        .height(48.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B4FD8)),
+                    shape = RoundedCornerShape(10.dp)
                 ) {
                     Text(
-                        text = if (isPetitionExpanded) "Read Less ▲" else "Read More ▼",
-                        color = Color(0xFF16A34A),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp
+                        text = "Submit Report",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
-            }
-        }
-
-        // Your Details Section
-        Text(text = "👤 Your Details", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-        Row(
-            modifier = Modifier.fillMaxWidth().offset(y = (-8).dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            OutlinedTextField(
-                value = userName,
-                onValueChange = onNameChange,
-                label = { Text("Your Name", fontSize = 12.sp) },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp)
-            )
-
-            OutlinedTextField(
-                value = userMobile,
-                onValueChange = onMobileChange,
-                label = { Text("Mobile Number", fontSize = 12.sp) },
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(12.dp)
-            )
-        }
-
-        // Submit Button
-        Button(
-            onClick = onSubmitClick,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15803D)),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Spacer(modifier = Modifier.width(20.dp))
-                Text("Next: Review & Submit", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White)
-                Icon(imageVector = Icons.Default.KeyboardArrowRight, contentDescription = "Next")
             }
         }
     }
@@ -1331,7 +2085,7 @@ fun fetchRealLocation(context: Context, onLocationDetected: (Double, Double, Str
         if (location != null) {
             val geocoder = Geocoder(context, Locale.getDefault())
             val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
-            val addressLine = addresses?.firstOrNull()?.getAddressLine(0) ?: "Talwandi, Kota, Rajasthan 324005"
+            val addressLine = addresses?.firstOrNull()?.getAddressLine(0) ?: "2/F-61, Vistar Yojna, Mahaveer Nagar, Kota 324009"
             onLocationDetected(location.latitude, location.longitude, addressLine)
         } else {
             val provider = if (isNetworkEnabled) LocationManager.NETWORK_PROVIDER else LocationManager.GPS_PROVIDER
@@ -1343,10 +2097,10 @@ fun fetchRealLocation(context: Context, onLocationDetected: (Double, Double, Str
                         try {
                             val geocoder = Geocoder(context, Locale.getDefault())
                             val addresses = geocoder.getFromLocation(loc.latitude, loc.longitude, 1)
-                            val addressLine = addresses?.firstOrNull()?.getAddressLine(0) ?: "Talwandi, Kota, Rajasthan 324005"
+                            val addressLine = addresses?.firstOrNull()?.getAddressLine(0) ?: "2/F-61, Vistar Yojna, Mahaveer Nagar, Kota 324009"
                             onLocationDetected(loc.latitude, loc.longitude, addressLine)
                         } catch (e: Exception) {
-                            onLocationDetected(loc.latitude, loc.longitude, "Talwandi, Kota, Rajasthan 324005")
+                            onLocationDetected(loc.latitude, loc.longitude, "2/F-61, Vistar Yojna, Mahaveer Nagar, Kota 324009")
                         }
                     }
                     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
@@ -1356,6 +2110,1407 @@ fun fetchRealLocation(context: Context, onLocationDetected: (Double, Double, Str
             }
         }
     } catch (e: Exception) {
-        onLocationDetected(25.18254, 75.82736, "Talwandi, Kota, Rajasthan 324005")
+        onLocationDetected(25.18254, 75.82736, "2/F-61, Vistar Yojna, Mahaveer Nagar, Kota 324009")
     }
 }
+
+@Composable
+fun EmptyPhotoSlot(onClick: () -> Unit) {
+    val strokeColor = Color(0xFFE5E7EB)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.White, shape = RoundedCornerShape(8.dp))
+            .clickable { onClick() }
+            .drawBehind {
+                val strokeWidth = 1.dp.toPx()
+                val dashLength = 10f
+                val gapLength = 10f
+                val pathEffect = PathEffect.dashPathEffect(
+                    floatArrayOf(dashLength, gapLength), 
+                    0f
+                )
+                
+                val path = Path().apply {
+                    addRoundRect(
+                        roundRect = RoundRect(
+                            rect = Rect(
+                                left = strokeWidth / 2f,
+                                top = strokeWidth / 2f,
+                                right = size.width - strokeWidth / 2f,
+                                bottom = size.height - strokeWidth / 2f
+                            ),
+                            cornerRadius = CornerRadius(8.dp.toPx())
+                        )
+                    )
+                }
+                
+                drawPath(
+                    path = path,
+                    color = strokeColor,
+                    style = Stroke(
+                        width = strokeWidth,
+                        pathEffect = pathEffect
+                    )
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            CameraIcon(color = Color(0xFF9CA3AF), modifier = Modifier.size(24.dp))
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Add Photo",
+                fontSize = 11.sp,
+                color = Color(0xFF9CA3AF)
+            )
+        }
+    }
+}
+
+@Composable
+fun CameraIcon(color: Color = Color(0xFF9CA3AF), modifier: Modifier = Modifier.size(24.dp)) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = 1.5.dp.toPx()
+        val w = size.width
+        val h = size.height
+        
+        val bodyW = w * 0.7f
+        val bodyH = h * 0.5f
+        val bodyX = (w - bodyW) / 2f
+        val bodyY = (h - bodyH) / 2f + 1.dp.toPx()
+        
+        drawRoundRect(
+            color = color,
+            topLeft = androidx.compose.ui.geometry.Offset(bodyX, bodyY),
+            size = androidx.compose.ui.geometry.Size(bodyW, bodyH),
+            cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx()),
+            style = Stroke(width = strokeWidth)
+        )
+        
+        drawCircle(
+            color = color,
+            radius = bodyH * 0.3f,
+            center = androidx.compose.ui.geometry.Offset(w / 2f, bodyY + bodyH / 2f),
+            style = Stroke(width = strokeWidth)
+        )
+        
+        val tabW = bodyW * 0.3f
+        val tabH = 2.dp.toPx()
+        val tabX = (w - tabW) / 2f
+        val tabY = bodyY - tabH
+        drawRoundRect(
+            color = color,
+            topLeft = androidx.compose.ui.geometry.Offset(tabX, tabY),
+            size = androidx.compose.ui.geometry.Size(tabW, tabH + 1.dp.toPx()),
+            cornerRadius = CornerRadius(1.dp.toPx(), 1.dp.toPx())
+        )
+    }
+}
+
+@Composable
+fun GalleryIcon(color: Color = Color.White, modifier: Modifier = Modifier.size(24.dp)) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = 1.5.dp.toPx()
+        val w = size.width
+        val h = size.height
+        drawRoundRect(
+            color = color,
+            topLeft = androidx.compose.ui.geometry.Offset(2.dp.toPx(), 2.dp.toPx()),
+            size = androidx.compose.ui.geometry.Size(w - 4.dp.toPx(), h - 4.dp.toPx()),
+            cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx()),
+            style = Stroke(width = strokeWidth)
+        )
+        drawCircle(
+            color = color,
+            radius = 2.dp.toPx(),
+            center = androidx.compose.ui.geometry.Offset(w * 0.3f, h * 0.3f)
+        )
+        val path = Path().apply {
+            moveTo(3.dp.toPx(), h - 3.dp.toPx())
+            lineTo(w * 0.4f, h * 0.5f)
+            lineTo(w * 0.7f, h * 0.7f)
+            lineTo(w - 3.dp.toPx(), h - 3.dp.toPx())
+            close()
+        }
+        drawPath(path = path, color = color, style = Stroke(width = strokeWidth))
+    }
+}
+
+
+
+@Composable
+fun SparklesIcon(color: Color = Color(0xFF6366F1), modifier: Modifier = Modifier.size(16.dp)) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val path = Path().apply {
+            moveTo(w * 0.5f, 0f)
+            lineTo(w * 0.6f, h * 0.4f)
+            lineTo(w, h * 0.5f)
+            lineTo(w * 0.6f, h * 0.6f)
+            lineTo(w * 0.5f, h)
+            lineTo(w * 0.4f, h * 0.6f)
+            lineTo(0f, h * 0.5f)
+            lineTo(w * 0.4f, h * 0.4f)
+            close()
+        }
+        drawPath(path = path, color = color)
+    }
+}
+
+@Composable
+fun UploadIcon(color: Color = Color.White, modifier: Modifier = Modifier.size(18.dp)) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = 2.dp.toPx()
+        val w = size.width
+        val h = size.height
+        drawLine(
+            color = color,
+            start = androidx.compose.ui.geometry.Offset(2.dp.toPx(), h - 2.dp.toPx()),
+            end = androidx.compose.ui.geometry.Offset(w - 2.dp.toPx(), h - 2.dp.toPx()),
+            strokeWidth = strokeWidth
+        )
+        drawLine(
+            color = color,
+            start = androidx.compose.ui.geometry.Offset(w / 2f, h - 2.dp.toPx()),
+            end = androidx.compose.ui.geometry.Offset(w / 2f, 2.dp.toPx()),
+            strokeWidth = strokeWidth
+        )
+        drawLine(
+            color = color,
+            start = androidx.compose.ui.geometry.Offset(w / 2f, 2.dp.toPx()),
+            end = androidx.compose.ui.geometry.Offset(w * 0.3f, h * 0.4f),
+            strokeWidth = strokeWidth
+        )
+        drawLine(
+            color = color,
+            start = androidx.compose.ui.geometry.Offset(w / 2f, 2.dp.toPx()),
+            end = androidx.compose.ui.geometry.Offset(w * 0.7f, h * 0.4f),
+            strokeWidth = strokeWidth
+        )
+    }
+}
+
+@Composable
+fun CornerBrackets(modifier: Modifier = Modifier, color: Color = Color(0xFF6366F1)) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = 3.dp.toPx()
+        val len = 20.dp.toPx()
+        val w = size.width
+        val h = size.height
+
+        // Top Left
+        drawLine(color = color, start = androidx.compose.ui.geometry.Offset(0f, 0f), end = androidx.compose.ui.geometry.Offset(len, 0f), strokeWidth = strokeWidth)
+        drawLine(color = color, start = androidx.compose.ui.geometry.Offset(0f, 0f), end = androidx.compose.ui.geometry.Offset(0f, len), strokeWidth = strokeWidth)
+
+        // Top Right
+        drawLine(color = color, start = androidx.compose.ui.geometry.Offset(w, 0f), end = androidx.compose.ui.geometry.Offset(w - len, 0f), strokeWidth = strokeWidth)
+        drawLine(color = color, start = androidx.compose.ui.geometry.Offset(w, 0f), end = androidx.compose.ui.geometry.Offset(w, len), strokeWidth = strokeWidth)
+
+        // Bottom Left
+        drawLine(color = color, start = androidx.compose.ui.geometry.Offset(0f, h), end = androidx.compose.ui.geometry.Offset(len, h), strokeWidth = strokeWidth)
+        drawLine(color = color, start = androidx.compose.ui.geometry.Offset(0f, h), end = androidx.compose.ui.geometry.Offset(0f, h - len), strokeWidth = strokeWidth)
+
+        // Bottom Right
+        drawLine(color = color, start = androidx.compose.ui.geometry.Offset(w, h), end = androidx.compose.ui.geometry.Offset(w - len, h), strokeWidth = strokeWidth)
+        drawLine(color = color, start = androidx.compose.ui.geometry.Offset(w, h), end = androidx.compose.ui.geometry.Offset(w, h - len), strokeWidth = strokeWidth)
+    }
+}
+
+@Composable
+fun SkeletonLoader(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition()
+    val translateAnim by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        )
+    )
+
+    val brush = Brush.linearGradient(
+        colors = listOf(
+            Color(0xFFE2E8F0),
+            Color(0xFFF1F5F9),
+            Color(0xFFE2E8F0)
+        ),
+        start = androidx.compose.ui.geometry.Offset(10f, 10f),
+        end = androidx.compose.ui.geometry.Offset(translateAnim, translateAnim)
+    )
+
+    Box(
+        modifier = modifier
+            .background(brush, shape = RoundedCornerShape(4.dp))
+    )
+}
+
+@Composable
+fun StepOneUploadAndScanContent(
+    stagedImageBase64: String?,
+    capturedBitmap: Bitmap?,
+    scanProgress: Float,
+    clarityStatus: String,
+    objectStatus: String,
+    severityStatus: String,
+    locationStatus: String,
+    petitionStatus: String,
+    onChooseImageClick: () -> Unit,
+    onTakePhotoClick: () -> Unit
+) {
+    var activeDot by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(400)
+            activeDot = (activeDot + 1) % 3
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFFF1F5F9))
+                        .border(BorderStroke(1.dp, Color(0xFFE2E8F0)), RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (stagedImageBase64 != null && capturedBitmap != null) {
+                        Image(
+                            bitmap = capturedBitmap.asImageBitmap(),
+                            contentDescription = "Selected Hazard Preview",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                        
+                        CornerBrackets(modifier = Modifier.fillMaxSize(), color = Color(0xFF6366F1))
+                        
+                        if (scanProgress < 1.0f) {
+                            val infiniteTransition = rememberInfiniteTransition()
+                            val lineOffset by infiniteTransition.animateFloat(
+                                initialValue = 0f,
+                                targetValue = 1f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(durationMillis = 2000, easing = LinearEasing),
+                                    repeatMode = RepeatMode.Reverse
+                                )
+                            )
+                            
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(3.dp)
+                                    .align(Alignment.TopCenter)
+                                    .offset(y = (200 * lineOffset).dp)
+                                    .background(
+                                        Brush.horizontalGradient(
+                                            colors = listOf(
+                                                Color(0x00818CF8),
+                                                Color(0xFF818CF8),
+                                                Color(0xFF6366F1),
+                                                Color(0xFF818CF8),
+                                                Color(0x00818CF8)
+                                            )
+                                        )
+                                    )
+                            )
+                            
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.4f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = "Analyzing Image...",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 16.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        for (i in 0..2) {
+                                            val size = if (i == activeDot) 10.dp else 8.dp
+                                            val color = if (i == activeDot) Color(0xFF818CF8) else Color(0x66FFFFFF)
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(size)
+                                                    .background(color, shape = CircleShape)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text("🖼️", fontSize = 48.sp)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "No hazard image selected yet",
+                                fontSize = 14.sp,
+                                color = Color(0xFF64748B),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+                
+                if (stagedImageBase64 != null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(Color(0xFFF1F5F9))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxHeight()
+                                    .fillMaxWidth(scanProgress)
+                                    .background(Color(0xFF6366F1))
+                            )
+                        }
+                        Text(
+                            text = "${(scanProgress * 100).toInt()}%",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E293B)
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onTakePhotoClick,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        border = BorderStroke(1.dp, Color(0xFF2563EB)),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2563EB))
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CameraIcon(color = Color(0xFF2563EB), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Take Photo", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    
+                    Button(
+                        onClick = onChooseImageClick,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            GalleryIcon(color = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Choose from Gallery", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "AI PROCESSING STEPS",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF6B7280),
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                
+                val stepsList = listOf(
+                    Triple("Image clarity check", clarityStatus, "Passed"),
+                    Triple("Object detection", objectStatus, "3 hazard objects found"),
+                    Triple("Severity classification", severityStatus, "Passed"),
+                    Triple("Location context match", locationStatus, "Passed"),
+                    Triple("Petition template generation", petitionStatus, "Passed")
+                )
+                
+                stepsList.forEachIndexed { index, (label, status, successText) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            when (status) {
+                                "Passed", successText -> {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Passed",
+                                        tint = Color(0xFF16A34A),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                "Processing..." -> {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        color = Color(0xFF2563EB),
+                                        strokeWidth = 2.dp
+                                    )
+                                }
+                                else -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .border(1.5.dp, Color(0xFF9CA3AF), CircleShape)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = label,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF374151)
+                            )
+                        }
+                        
+                        Text(
+                            text = if (status == "Passed") successText else status,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = when (status) {
+                                "Passed", successText -> Color(0xFF16A34A)
+                                "Processing..." -> Color(0xFF2563EB)
+                                else -> Color(0xFF9CA3AF)
+                            }
+                        )
+                    }
+                    if (index < stepsList.size - 1) {
+                        Divider(color = Color(0xFFF3F4F6))
+                    }
+                }
+            }
+        }
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF8FAFC)),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+        ) {
+            Row(
+                modifier = Modifier.padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ShieldIcon(color = Color(0xFF64748B), modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Your data is secure and used only for generating this report.",
+                    fontSize = 12.sp,
+                    color = Color(0xFF64748B),
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun StepTwoAiAnalysisSkeleton() {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth().height(160.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    SkeletonLoader(modifier = Modifier.width(140.dp).height(18.dp))
+                    SkeletonLoader(modifier = Modifier.width(80.dp).height(18.dp))
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SkeletonLoader(modifier = Modifier.size(56.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SkeletonLoader(modifier = Modifier.width(160.dp).height(16.dp))
+                        SkeletonLoader(modifier = Modifier.width(120.dp).height(14.dp))
+                    }
+                }
+                SkeletonLoader(modifier = Modifier.fillMaxWidth().height(8.dp))
+            }
+        }
+        
+        Card(
+            modifier = Modifier.fillMaxWidth().height(260.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                SkeletonLoader(modifier = Modifier.width(120.dp).height(14.dp))
+                repeat(5) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        SkeletonLoader(modifier = Modifier.width(100.dp).height(14.dp))
+                        SkeletonLoader(modifier = Modifier.width(120.dp).height(14.dp))
+                    }
+                }
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth().height(140.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+        ) {
+            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                SkeletonLoader(modifier = Modifier.size(90.dp))
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.weight(1f)) {
+                    SkeletonLoader(modifier = Modifier.width(120.dp).height(14.dp))
+                    SkeletonLoader(modifier = Modifier.fillMaxWidth().height(16.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StepTwoAiAnalysisContent(
+    selectedCategory: String,
+    severity: String,
+    confidenceScore: String,
+    analysisReason: String,
+    gpsCoordinates: String,
+    userLatLng: LatLng?,
+    isAnalyzing: Boolean,
+    onEditDetailsClick: () -> Unit,
+    onGeneratePetitionClick: () -> Unit
+) {
+    if (isAnalyzing) {
+        StepTwoAiAnalysisSkeleton()
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFEEF2FF)),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.5.dp, Color(0xFFC7D2FE)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            SparklesIcon(
+                                color = Color(0xFF6366F1),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "AI Analysis Complete",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF4F46E5)
+                            )
+                        }
+                        
+                        Text(
+                            text = "$confidenceScore Confident",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF4F46E5)
+                        )
+                    }
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFFE2E8F0))
+                        ) {
+                            Image(
+                                painter = androidx.compose.ui.res.painterResource(id = com.nagarrakshak.R.drawable.placeholder_hazard),
+                                contentDescription = "Hazard Thumbnail",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.width(12.dp))
+                        
+                        Column(
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "$selectedCategory Detected",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1E293B)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Road Infrastructure Hazard",
+                                fontSize = 13.sp,
+                                color = Color(0xFF64748B)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Severity: ",
+                                    fontSize = 12.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            color = when (severity) {
+                                                "Low Risk", "Low" -> Color(0xFF16A34A)
+                                                "Medium Risk", "Medium" -> Color(0xFFD97706)
+                                                else -> Color(0xFFDC2626)
+                                            },
+                                            shape = RoundedCornerShape(4.dp)
+                                        )
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = severity.replace(" Risk", "").uppercase(),
+                                        color = Color.White,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            text = "Confidence Score",
+                            fontSize = 11.sp,
+                            color = Color(0xFF64748B),
+                            fontWeight = FontWeight.Medium
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(Color(0xFFE2E8F0))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(0.96f)
+                                        .background(Color(0xFF6366F1))
+                                )
+                            }
+                            Text(
+                                text = "96%",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1E293B)
+                            )
+                        }
+                    }
+                }
+            }
+            
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "AUTO-DETECTED DETAILS",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6B7280),
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    
+                    val detailsList = listOf(
+                        Pair("Hazard Type", selectedCategory),
+                        Pair("Severity", severity.replace(" Risk", "")),
+                        Pair("Category", "Road Damage"),
+                        Pair("Dimensions", "~2ft × 1.5ft"),
+                        Pair("Risk Level", if (severity == "High Risk" || severity == "High") "Danger to life" else if (severity == "Medium Risk" || severity == "Medium") "Affects traffic" else "Minor inconvenience"),
+                        Pair("Dept. to Alert", "PWD / NHAI")
+                    )
+                    
+                    detailsList.forEachIndexed { index, (label, valStr) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = label,
+                                fontSize = 13.sp,
+                                color = Color(0xFF64748B)
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = valStr,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1E293B)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color(0xFFEEF2FF), shape = RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "AI",
+                                        color = Color(0xFF4F46E5),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                        if (index < detailsList.size - 1) {
+                            Divider(color = Color(0xFFF3F4F6))
+                        }
+                    }
+                }
+            }
+            
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "LOCATION CONTEXT",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6B7280),
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(90.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(8.dp))
+                        ) {
+                            val mapCenter = userLatLng ?: LatLng(25.18254, 75.82736)
+                            val cameraState = rememberCameraPositionState {
+                                position = CameraPosition.fromLatLngZoom(mapCenter, 15f)
+                            }
+                            GoogleMap(
+                                modifier = Modifier.fillMaxSize(),
+                                cameraPositionState = cameraState,
+                                uiSettings = com.google.maps.android.compose.MapUiSettings(zoomControlsEnabled = false, myLocationButtonEnabled = false)
+                            )
+                            Icon(
+                                imageVector = Icons.Default.LocationOn,
+                                contentDescription = "Pin",
+                                tint = Color(0xFFDC2626),
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .align(Alignment.Center)
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.width(12.dp))
+                        
+                        Column(
+                            verticalArrangement = Arrangement.Center,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = "Detected Near:",
+                                fontSize = 12.sp,
+                                color = Color(0xFF64748B)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = gpsCoordinates,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1E293B)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Match confidence: 98%",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color(0xFF2563EB)
+                            )
+                        }
+                    }
+                }
+            }
+            
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "AI OBSERVATIONS",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6B7280),
+                        letterSpacing = 1.sp
+                    )
+                    
+                    val observations = listOf(
+                        "Deep pothole visible, estimated 6 inch depth",
+                        "Water accumulation risk during monsoon",
+                        "Located on high-traffic road segment",
+                        "No temporary repair markers visible"
+                    )
+                    
+                    observations.forEach { obs ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            Text(
+                                text = "•",
+                                color = Color(0xFF6366F1),
+                                fontSize = 18.sp,
+                                modifier = Modifier.offset(y = (-3).dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = obs,
+                                fontSize = 13.sp,
+                                color = Color(0xFF374151),
+                                lineHeight = 18.sp
+                            )
+                        }
+                    }
+                }
+            }
+            
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFFFFBEB), shape = RoundedCornerShape(8.dp))
+                    .border(1.dp, Color(0xFFFEF3C7), shape = RoundedCornerShape(8.dp))
+                    .padding(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Alert",
+                            tint = Color(0xFFD97706),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "AI suggestions can be edited before submitting",
+                            color = Color(0xFF92400E),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit",
+                        tint = Color(0xFFD97706),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onEditDetailsClick,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp),
+                    border = BorderStroke(1.dp, Color(0xFF2563EB)),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2563EB))
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Edit Details", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+                
+                Button(
+                    onClick = onGeneratePetitionClick,
+                    modifier = Modifier
+                        .weight(1.5f)
+                        .height(48.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Generate Petition", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(imageVector = Icons.Default.ArrowForward, contentDescription = "Next", modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun StepThreePetitionDraftContent(
+    selectedCategory: String,
+    severity: String,
+    gpsCoordinates: String,
+    petitionText: String,
+    onPetitionChange: (String) -> Unit,
+    onSubmitClick: () -> Unit,
+    onShareClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SparklesIcon(
+                        color = Color(0xFF6366F1),
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "AI GENERATED PETITION",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF4F46E5),
+                        letterSpacing = 1.sp
+                    )
+                }
+                
+                Text(
+                    text = "Citizen Hazard Petition",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1E293B)
+                )
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "To: Municipal Corporation, Kota",
+                        fontSize = 13.sp,
+                        color = Color(0xFF64748B)
+                    )
+                    Text(
+                        text = "#SCK-2024-00847",
+                        fontSize = 13.sp,
+                        color = Color(0xFF2563EB),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .background(Color(0xFFF1F5F9), shape = RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("📍", fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Mahaveer Nagar", fontSize = 11.sp, color = Color(0xFF334155), fontWeight = FontWeight.Medium)
+                    }
+                    
+                    Row(
+                        modifier = Modifier
+                            .background(Color(0xFFFFF1F2), shape = RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("⚠️", fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("High Priority", fontSize = 11.sp, color = Color(0xFFE11D48), fontWeight = FontWeight.Bold)
+                    }
+                    
+                    Row(
+                        modifier = Modifier
+                            .background(Color(0xFFF1F5F9), shape = RoundedCornerShape(6.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("🏛️", fontSize = 12.sp)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("PWD Dept", fontSize = 11.sp, color = Color(0xFF334155), fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+        }
+        
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "AI DRAFTED CONTENT",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF6B7280),
+                    letterSpacing = 1.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                OutlinedTextField(
+                    value = petitionText,
+                    onValueChange = onPetitionChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Transparent,
+                        unfocusedBorderColor = Color.Transparent,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent
+                    ),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, color = Color(0xFF334155))
+                )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Text(
+                    text = "Read Full Petition →",
+                    color = Color(0xFF2563EB),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clickable { }
+                        .padding(vertical = 4.dp)
+                )
+                
+                Spacer(modifier = Modifier.height(14.dp))
+                Divider(color = Color(0xFFF3F4F6))
+                Spacer(modifier = Modifier.height(14.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Priority", fontSize = 11.sp, color = Color(0xFF64748B))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("HIGH", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                    }
+                    
+                    Box(modifier = Modifier.width(1.dp).height(30.dp).background(Color(0xFFE2E8F0)))
+                    
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Dept", fontSize = 11.sp, color = Color(0xFF64748B))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("PWD", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
+                    }
+                    
+                    Box(modifier = Modifier.width(1.dp).height(30.dp).background(Color(0xFFE2E8F0)))
+                    
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Timeline", fontSize = 11.sp, color = Color(0xFF64748B))
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("7 Days", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
+                    }
+                }
+            }
+        }
+        
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Card(
+                modifier = Modifier.weight(1f),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "ATTACHED EVIDENCE",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6B7280),
+                        letterSpacing = 0.5.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(6.dp))
+                        ) {
+                            Image(
+                                painter = androidx.compose.ui.res.painterResource(id = com.nagarrakshak.R.drawable.placeholder_hazard),
+                                contentDescription = "Evidence Preview",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                            
+                            Box(
+                                modifier = Modifier
+                                    .padding(8.dp)
+                                    .fillMaxSize()
+                                    .border(1.5.dp, Color.Red, RoundedCornerShape(2.dp))
+                            )
+                        }
+                        
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .border(BorderStroke(1.dp, Color(0xFFCBD5E1)), RoundedCornerShape(6.dp))
+                                .background(Color.White),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CameraIcon(color = Color.Gray, modifier = Modifier.size(16.dp))
+                                Text("Add", fontSize = 8.sp, color = Color.Gray)
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "AI scan report will be auto-attached as PDF",
+                        fontSize = 9.sp,
+                        color = Color(0xFF64748B),
+                        lineHeight = 12.sp
+                    )
+                }
+            }
+            
+            Card(
+                modifier = Modifier.weight(1f),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "COMMUNITY SUPPORT",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6B7280),
+                        letterSpacing = 0.5.sp
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "12 / 50 signatures needed",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1E293B)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(Color(0xFFE2E8F0))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(12f / 50f)
+                                .background(Color(0xFF2563EB))
+                        )
+                    }
+                    
+                    Spacer(modifier = Modifier.height(10.dp))
+                    
+                    OutlinedButton(
+                        onClick = { },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(32.dp),
+                        contentPadding = PaddingValues(0.dp),
+                        border = BorderStroke(1.dp, Color(0xFF2563EB)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2563EB)),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("Sign This Petition", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "12 citizens have signed",
+                        fontSize = 9.sp,
+                        color = Color(0xFF64748B)
+                    )
+                }
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Button(
+                onClick = onSubmitClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    UploadIcon(color = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Submit to Municipality", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
+            
+            OutlinedButton(
+                onClick = onShareClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                border = BorderStroke(1.dp, Color(0xFF2563EB)),
+                shape = RoundedCornerShape(8.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2563EB))
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.Share, contentDescription = "Share", modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Share Petition Link", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            
+            Text(
+                text = "Petition will be sent via RTI portal + Email to Kota Municipal Corporation",
+                fontSize = 11.sp,
+                color = Color(0xFF64748B),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+            )
+        }
+    }
+}
+

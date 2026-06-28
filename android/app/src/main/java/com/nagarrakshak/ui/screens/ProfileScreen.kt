@@ -39,6 +39,9 @@ import androidx.compose.ui.platform.LocalContext
 fun ProfileScreen(
     onNavigateToDetail: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToReports: () -> Unit,
+    onNavigateToSavedAlerts: () -> Unit,
+    onNavigateToImpact: () -> Unit,
     onLogout: () -> Unit,
     onBackClicked: () -> Unit
 ) {
@@ -52,9 +55,24 @@ fun ProfileScreen(
     var isLoading by remember { mutableStateOf(true) }
     var showLogoutDialog by remember { mutableStateOf(false) }
 
+    var statsReported by remember { mutableIntStateOf(0) }
+    var statsVerified by remember { mutableIntStateOf(0) }
+    var statsReputation by remember { mutableIntStateOf(0) }
+    var badgeLevel by remember { mutableStateOf("Contributor") }
+
     LaunchedEffect(Unit) {
         isLoading = true
         alertsList = BackendClient.fetchNearbyHazards()
+        val statsObj = BackendClient.fetchProfileStats()
+        if (statsObj != null) {
+            statsReputation = statsObj.optInt("reputation_score", 0)
+            badgeLevel = statsObj.optString("badge_level", "Contributor")
+            val s = statsObj.optJSONObject("stats")
+            if (s != null) {
+                statsReported = s.optInt("hazards_reported", 0)
+                statsVerified = s.optInt("hazards_verified", 0)
+            }
+        }
         isLoading = false
     }
 
@@ -244,7 +262,7 @@ fun ProfileScreen(
                         ) {
                             SolidCheckBadgeIcon(bgColor = Color(0xFF15803D), checkColor = Color.White)
                             Text(
-                                text = "Active Citizen",
+                                text = badgeLevel,
                                 color = Color.White,
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 10.sp
@@ -270,21 +288,21 @@ fun ProfileScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     StatItem(
-                        value = "2",
+                        value = statsReported.toString(),
                         valueColor = Color(0xFF15803D),
                         label = "Hazards\nReported",
                         modifier = Modifier.weight(1f)
                     )
                     VerticalDivider(modifier = Modifier.height(40.dp), color = Color(0xFFE2E8F0))
                     StatItem(
-                        value = "0",
+                        value = statsVerified.toString(),
                         valueColor = Color(0xFF1D4ED8),
                         label = "Hazards\nVerified",
                         modifier = Modifier.weight(1f)
                     )
                     VerticalDivider(modifier = Modifier.height(40.dp), color = Color(0xFFE2E8F0))
                     StatItem(
-                        value = "4,820",
+                        value = statsReputation.toString(),
                         valueColor = Color(0xFFD97706),
                         label = "Reputation\nScore",
                         iconContent = { StarIcon() },
@@ -316,7 +334,7 @@ fun ProfileScreen(
                         description = "View and track your reported hazards",
                         iconContent = { DocumentIcon(color = Color(0xFF15803D)) },
                         iconBgColor = Color(0xFFDCFCE7),
-                        onClick = { /* Navigate to reports */ }
+                        onClick = onNavigateToReports
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF1F5F9))
                     ProfileOptionRow(
@@ -324,7 +342,7 @@ fun ProfileScreen(
                         description = "View alerts you've saved for later",
                         iconContent = { ShieldHomeIcon(color = Color(0xFF1D4ED8)) },
                         iconBgColor = Color(0xFFDBEAFE),
-                        onClick = { /* Navigate to saved alerts */ }
+                        onClick = onNavigateToSavedAlerts
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF1F5F9))
                     ProfileOptionRow(
@@ -332,7 +350,7 @@ fun ProfileScreen(
                         description = "See the impact of your civic contributions",
                         iconContent = { ChartIcon(color = Color(0xFF7E22CE)) },
                         iconBgColor = Color(0xFFF3E8FF),
-                        onClick = { /* Navigate to impact */ }
+                        onClick = onNavigateToImpact
                     )
                     HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color(0xFFF1F5F9))
                     ProfileOptionRow(
@@ -340,7 +358,7 @@ fun ProfileScreen(
                         description = "Manage your account and preferences",
                         iconContent = { GearIcon(color = Color(0xFFC2410C)) },
                         iconBgColor = Color(0xFFFFEDD5),
-                        onClick = { onNavigateToSettings() }
+                        onClick = onNavigateToSettings
                     )
                 }
             }

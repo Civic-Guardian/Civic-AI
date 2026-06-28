@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NagarRakshak</string>
+    <string name="default_web_client_id" translatable="false">280377628764-8qlvml30baqnumrne1s2r99u7nkn5rd8.apps.googleusercontent.com</string>
+    <string name="gcm_defaultSenderId" translatable="false">280377628764</string>
+    <string name="google_api_key" translatable="false">AIzaSyDovlCpnvDQTxh03rA840PzP3DPE54EOkY</string>
+    <string name="google_app_id" translatable="false">1:280377628764:android:8e43489854d015aaeeee99</string>
+    <string name="google_crash_reporting_api_key" translatable="false">AIzaSyDovlCpnvDQTxh03rA840PzP3DPE54EOkY</string>
+    <string name="google_storage_bucket" translatable="false">civicai-60cff.firebasestorage.app</string>
+    <string name="project_id" translatable="false">civicai-60cff</string>
+    <string name="tagline">Report. Alert. Prevent.</string>
+    <style name="Theme.NagarRakshak" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">#16A34A</item>
+    </style>
+</resources>
