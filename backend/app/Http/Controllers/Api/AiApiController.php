@@ -141,7 +141,7 @@ class AiApiController extends Controller
                 ]
             ]);
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('AI Analysis Endpoint Error: ' . $e->getMessage());
             return response()->json([
                 'success' => false,

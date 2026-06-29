@@ -22,7 +22,12 @@ class GcsService
                 return null;
             }
 
-            $storage = new StorageClient([
+            if (!class_exists('\Google\Cloud\Storage\StorageClient')) {
+                Log::warning('Google Cloud Storage SDK is not installed on this server. Falling back to local storage.');
+                return null;
+            }
+
+            $storage = new \Google\Cloud\Storage\StorageClient([
                 'keyFile' => json_decode($keyFileJson, true)
             ]);
 
@@ -40,7 +45,7 @@ class GcsService
             // Construct standard public GCS access URL
             return "https://storage.googleapis.com/{$bucketName}/hazards/{$filename}";
 
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::error('Google Cloud Storage upload error: ' . $e->getMessage());
             return null;
         }

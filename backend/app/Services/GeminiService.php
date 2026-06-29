@@ -16,7 +16,17 @@ class GeminiService
     {
         $startTime = microtime(true);
         $aiSetting = AiSetting::first();
-        $apiKey = ($aiSetting && $aiSetting->api_key) ? $aiSetting->api_key : env('GEMINI_API_KEY');
+        $apiKey = null;
+        if ($aiSetting) {
+            try {
+                $apiKey = $aiSetting->api_key;
+            } catch (\Throwable $de) {
+                Log::warning('Failed to decrypt Gemini API Key from database (MAC invalid). Falling back to environment variable.');
+            }
+        }
+        if (!$apiKey) {
+            $apiKey = env('GEMINI_API_KEY');
+        }
         $model = ($aiSetting && $aiSetting->model_name) ? $aiSetting->model_name : 'gemini-2.5-flash';
         $temperature = ($aiSetting && isset($aiSetting->temperature)) ? (float)$aiSetting->temperature : 0.3;
         $maxTokens = ($aiSetting && isset($aiSetting->max_tokens)) ? (int)$aiSetting->max_tokens : 2048;

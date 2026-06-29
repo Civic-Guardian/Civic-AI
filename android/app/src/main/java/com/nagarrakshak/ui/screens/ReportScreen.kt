@@ -193,27 +193,32 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
             val result = apiResult
             if (result != null) {
                 try {
-                    selectedCategory = result.optString("predicted_category", "Pothole")
-                    severity = result.optString("predicted_severity", "High Risk")
+                    selectedCategory = result.optString("predicted_category", "Other")
+                    severity = result.optString("predicted_severity", "Medium Risk")
                     petitionText = result.optString("petition_draft", "")
-                    confidenceScore = result.optString("confidence_score", "96%")
-                    analysisReason = result.optString("generated_summary", "AI detected a potential safety hazard in public infrastructure. Action recommended.")
+                    confidenceScore = result.optString("confidence_score", "0%")
+                    analysisReason = result.optString("generated_summary", "")
                     uploadedImageUrl = result.optString("image_path")
+                    isEditingDetails = false
                 } catch (e: Exception) {
-                    selectedCategory = "Pothole"
-                    severity = "High Risk"
-                    confidenceScore = "96%"
-                    analysisReason = "Large open pothole with water accumulation poses risk to vehicles and pedestrians."
+                    selectedCategory = "Other"
+                    severity = "Medium Risk"
+                    confidenceScore = "0%"
+                    analysisReason = ""
+                    petitionText = ""
                     uploadedImageUrl = null
+                    isEditingDetails = true
+                    Toast.makeText(context, "AI Analysis error: ${e.message}. Please enter details manually.", Toast.LENGTH_LONG).show()
                 }
             } else {
-                // Mock fallback data
-                selectedCategory = "Pothole"
-                severity = "High Risk"
-                confidenceScore = "96%"
-                analysisReason = "Large open pothole with water accumulation poses risk to vehicles and pedestrians."
-                petitionText = "To,\nThe Municipal Commissioner,\nKota Municipal Corporation,\nKota, Rajasthan\n\nSubject: Urgent request for repair of Pothole at Mahaveer Nagar, Kota.\n\nRespected Sir/Madam,\nI would like to bring to your kind attention the poor condition of the road near Mahaveer Nagar, Kota. The large open pothole is causing immense vehicle damage and poses severe safety hazards to pedestrians and traffic alike.\n\nKindly dispatch repair crews urgently.\n\nYours faithfully,\nRahul Sharma"
+                selectedCategory = "Other"
+                severity = "Medium Risk"
+                confidenceScore = "0%"
+                analysisReason = ""
+                petitionText = ""
                 uploadedImageUrl = null
+                isEditingDetails = true
+                Toast.makeText(context, "AI Scan failed. Please enter details manually.", Toast.LENGTH_LONG).show()
             }
             
             currentStep = 2
