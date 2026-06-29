@@ -37,6 +37,13 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import coil.compose.AsyncImage
 
+data class CommentItem(
+    val userName: String,
+    val text: String,
+    val timeAgo: String,
+    val isOfficial: Boolean = false
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DetailScreen(
@@ -44,11 +51,22 @@ fun DetailScreen(
     onBackClicked: () -> Unit
 ) {
     val context = LocalContext.current
+    val authManager = remember { com.nagarrakshak.data.AuthManager(context) }
     var hazardReport by remember { mutableStateOf<HazardReport?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var hasVerified by remember { mutableStateOf(false) }
+    var isSaved by remember { mutableStateOf(false) }
+    var isMenuExpanded by remember { mutableStateOf(false) }
     var isError by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+
+    val commentsList = remember(hazardId) {
+        androidx.compose.runtime.mutableStateListOf(
+            CommentItem("Municipal Corporation", "Complaint registered. Assigned to PWD Division. Expected repair within 7 working days.", "10 mins ago", isOfficial = true),
+            CommentItem("Ramesh Kumar", "I passed by this area today morning, vehicle traffic was slow due to this.", "1 hour ago"),
+            CommentItem("Priya Sharma", "Thank you for reporting! Confirmed from Mahaveer Nagar area.", "2 hours ago")
+        )
+    }
 
     var geminiAnalysisEnabled by remember { mutableStateOf(true) }
     var petitionEnabled by remember { mutableStateOf(true) }
@@ -70,6 +88,24 @@ fun DetailScreen(
                 petitionEnabled = settings.optBoolean("petition_enabled", true)
             } catch (e: Exception) {
                 Log.e("DetailScreen", "Settings fetch failed: ${e.message}", e)
+            }
+            try {
+                val backendComments = BackendClient.fetchComments(hazardId)
+                if (backendComments.isNotEmpty()) {
+                    commentsList.clear()
+                    for (c in backendComments) {
+                        commentsList.add(
+                            CommentItem(
+                                userName = c.optString("user_name", "Citizen"),
+                                text = c.optString("content", ""),
+                                timeAgo = c.optString("created_at", "Recently"),
+                                isOfficial = c.optBoolean("is_official", false)
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("DetailScreen", "Comments fetch failed: ${e.message}", e)
             }
         } catch (e: Exception) {
             Log.e("DetailScreen", "Failed to load: ${e.message}", e)
@@ -129,8 +165,32 @@ fun DetailScreen(
         allAlerts.filter { it.id != hazardId }.take(4)
     }
 
-    // Comment count derived from data
-    val commentCount = remember(report.id) { 2 + (kotlin.math.abs(report.id.hashCode()) % 8) }
+    val openNavigationInMaps: () -> Unit = {
+        try {
+            val gmmIntentUri = android.net.Uri.parse("google.navigation:q=${report.latitude},${report.longitude}")
+            val mapIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, gmmIntentUri)
+            mapIntent.setPackage("com.google.android.apps.maps")
+            if (mapIntent.resolveActivity(context.packageManager) != null) {
+                context.startActivity(mapIntent)
+            } else {
+                val browserIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${report.latitude},${report.longitude}"))
+                context.startActivity(browserIntent)
+            }
+        } catch (e: Exception) {
+            val browserIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${report.latitude},${report.longitude}"))
+            context.startActivity(browserIntent)
+        }
+    }
+
+    val onShareReport: () -> Unit = {
+        val sendIntent = android.content.Intent().apply {
+            action = android.content.Intent.ACTION_SEND
+            putExtra(android.content.Intent.EXTRA_TEXT, "⚠️ Civic Hazard Alert: ${report.title} reported at ${report.locationName}.\nView details on NagarRakshak app: https://nagarrakshak.gov.in/hazards/${report.id}")
+            type = "text/plain"
+        }
+        val shareIntent = android.content.Intent.createChooser(sendIntent, "Share Hazard Alert")
+        context.startActivity(shareIntent)
+    }
 
     Scaffold(
         containerColor = Color(0xFFF5F7FA),
@@ -149,7 +209,7 @@ fun DetailScreen(
                 ) {
                     // Navigate button
                     Button(
-                        onClick = { Toast.makeText(context, "Opening navigation...", Toast.LENGTH_SHORT).show() },
+                        onClick = openNavigationInMaps,
                         modifier = Modifier.weight(2f).height(52.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B4FD8)),
                         shape = RoundedCornerShape(10.dp)
@@ -161,7 +221,7 @@ fun DetailScreen(
                     }
                     // Share
                     OutlinedButton(
-                        onClick = { },
+                        onClick = onShareReport,
                         modifier = Modifier.size(52.dp),
                         shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
@@ -169,7 +229,7 @@ fun DetailScreen(
                     ) { Icon(Icons.Outlined.Share, "Share", Modifier.size(20.dp), tint = Color(0xFF6B7280)) }
                     // Report
                     OutlinedButton(
-                        onClick = { },
+                        onClick = { Toast.makeText(context, "Flagged for administrative review", Toast.LENGTH_SHORT).show() },
                         modifier = Modifier.size(52.dp),
                         shape = RoundedCornerShape(10.dp),
                         border = BorderStroke(1.dp, Color(0xFFFECACA)),
@@ -191,10 +251,18 @@ fun DetailScreen(
             Box(
                 modifier = Modifier.fillMaxWidth().height(280.dp)
             ) {
-                val imageUrl = report.imageUrl
-                val model = if (!imageUrl.isNullOrBlank()) imageUrl else com.nagarrakshak.R.drawable.placeholder_hazard
+                val imageList = remember(report.imageUrl) {
+                    report.imageUrl?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+                }
+                var currentImageIndex by remember { mutableStateOf(0) }
+                val currentModel = if (imageList.isNotEmpty()) {
+                    imageList.getOrElse(currentImageIndex) { imageList[0] }
+                } else {
+                    com.nagarrakshak.R.drawable.placeholder_hazard
+                }
+
                 AsyncImage(
-                    model = model,
+                    model = currentModel,
                     contentDescription = "Hazard Photo",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop
@@ -210,6 +278,49 @@ fun DetailScreen(
                     )
                 )
 
+                if (imageList.size > 1) {
+                    // Left and Right Arrow buttons for smooth switching
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.Center)
+                            .padding(horizontal = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        IconButton(
+                            onClick = { if (currentImageIndex > 0) currentImageIndex-- else currentImageIndex = imageList.size - 1 },
+                            modifier = Modifier.background(Color.Black.copy(0.4f), CircleShape).size(36.dp)
+                        ) {
+                            Text("<", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                        IconButton(
+                            onClick = { if (currentImageIndex < imageList.size - 1) currentImageIndex++ else currentImageIndex = 0 },
+                            modifier = Modifier.background(Color.Black.copy(0.4f), CircleShape).size(36.dp)
+                        ) {
+                            Text(">", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 12.dp)
+                            .background(Color.Black.copy(0.5f), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        imageList.forEachIndexed { idx, _ ->
+                            Box(
+                                modifier = Modifier
+                                    .size(if (idx == currentImageIndex) 10.dp else 6.dp)
+                                    .background(if (idx == currentImageIndex) Color.White else Color.White.copy(0.5f), CircleShape)
+                                    .clickable { currentImageIndex = idx }
+                            )
+                        }
+                    }
+                }
+
                 // Top bar icons (back, share, bookmark, more)
                 Row(
                     modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter)
@@ -220,14 +331,52 @@ fun DetailScreen(
                         Icon(Icons.Outlined.ArrowBack, "Back", tint = Color.White)
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        IconButton(onClick = { }, modifier = Modifier.background(Color.Black.copy(0.3f), CircleShape)) {
+                        IconButton(onClick = onShareReport, modifier = Modifier.background(Color.Black.copy(0.3f), CircleShape)) {
                             Icon(Icons.Outlined.Share, "Share", tint = Color.White)
                         }
-                        IconButton(onClick = { }, modifier = Modifier.background(Color.Black.copy(0.3f), CircleShape)) {
-                            Icon(Icons.Default.FavoriteBorder, "Bookmark", tint = Color.White)
+                        IconButton(
+                            onClick = {
+                                isSaved = !isSaved
+                                Toast.makeText(context, if (isSaved) "Saved to Bookmarks ❤️" else "Removed from Bookmarks", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.background(Color.Black.copy(0.3f), CircleShape)
+                        ) {
+                            Icon(
+                                if (isSaved) Icons.Filled.Favorite else Icons.Default.FavoriteBorder,
+                                "Bookmark",
+                                tint = if (isSaved) Color(0xFFEF4444) else Color.White
+                            )
                         }
-                        IconButton(onClick = { }, modifier = Modifier.background(Color.Black.copy(0.3f), CircleShape)) {
-                            Icon(Icons.Outlined.MoreVert, "More", tint = Color.White)
+                        Box {
+                            IconButton(onClick = { isMenuExpanded = true }, modifier = Modifier.background(Color.Black.copy(0.3f), CircleShape)) {
+                                Icon(Icons.Outlined.MoreVert, "More", tint = Color.White)
+                            }
+                            DropdownMenu(
+                                expanded = isMenuExpanded,
+                                onDismissRequest = { isMenuExpanded = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Copy Coordinates") },
+                                    onClick = {
+                                        isMenuExpanded = false
+                                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                        val clip = android.content.ClipData.newPlainText("Coordinates", "${report.latitude}, ${report.longitude}")
+                                        clipboard.setPrimaryClip(clip)
+                                        Toast.makeText(context, "Coordinates copied!", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Share Hazard Link") },
+                                    onClick = { isMenuExpanded = false; onShareReport() }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Report Inaccurate Details") },
+                                    onClick = {
+                                        isMenuExpanded = false
+                                        Toast.makeText(context, "Feedback submitted to moderators.", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -240,7 +389,7 @@ fun DetailScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("📷", fontSize = 12.sp)
-                        Text("1 / 1", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                        Text("${currentImageIndex + 1} / ${if (imageList.isNotEmpty()) imageList.size else 1}", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium)
                     }
                 }
 
@@ -288,13 +437,31 @@ fun DetailScreen(
                         }
                         Column(horizontalAlignment = Alignment.End) {
                             Text("STATUS", fontSize = 10.sp, color = Color(0xFF6B7280), fontWeight = FontWeight.Medium)
+                            val statusColor = when {
+                                report.status.contains("Verified", ignoreCase = true) -> Color(0xFF1D4ED8)
+                                report.status.contains("Resolved", ignoreCase = true) -> Color(0xFF16A34A)
+                                report.status.contains("Rejected", ignoreCase = true) -> Color(0xFFDC2626)
+                                else -> Color(0xFFD97706) // Pending
+                            }
+                            val statusBg = when {
+                                report.status.contains("Verified", ignoreCase = true) -> Color(0xFFDBEAFE)
+                                report.status.contains("Resolved", ignoreCase = true) -> Color(0xFFDCFCE7)
+                                report.status.contains("Rejected", ignoreCase = true) -> Color(0xFFFEE2E2)
+                                else -> Color(0xFFFEF3C7) // Pending
+                            }
+                            val statusEmoji = when {
+                                report.status.contains("Verified", ignoreCase = true) -> "✅"
+                                report.status.contains("Resolved", ignoreCase = true) -> "🟢"
+                                report.status.contains("Rejected", ignoreCase = true) -> "❌"
+                                else -> "⏳"
+                            }
                             Box(
-                                modifier = Modifier.background(Color(0xFFFEF3C7), RoundedCornerShape(4.dp))
+                                modifier = Modifier.background(statusBg, RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    Text("⏳", fontSize = 10.sp)
-                                    Text("Under Review", fontSize = 10.sp, color = Color(0xFFD97706), fontWeight = FontWeight.Bold)
+                                    Text(statusEmoji, fontSize = 10.sp)
+                                    Text(report.status, fontSize = 10.sp, color = statusColor, fontWeight = FontWeight.Bold)
                                 }
                             }
                         }
@@ -489,7 +656,7 @@ fun DetailScreen(
 
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
-                            onClick = { }, modifier = Modifier.weight(1f),
+                            onClick = openNavigationInMaps, modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, Color(0xFF1B4FD8))
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -498,7 +665,7 @@ fun DetailScreen(
                             }
                         }
                         OutlinedButton(
-                            onClick = { }, modifier = Modifier.weight(1f),
+                            onClick = openNavigationInMaps, modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, Color(0xFF1B4FD8))
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -529,46 +696,53 @@ fun DetailScreen(
                     Row(Modifier.fillMaxWidth()) {
                         CommunityStatColumn(Modifier.weight(1f), "${report.verificationCount}", "Confirmed", "👍", Color(0xFF16A34A))
                         Box(Modifier.width(1.dp).height(48.dp).background(Color(0xFFF3F4F6)))
-                        CommunityStatColumn(Modifier.weight(1f), "$commentCount", "Comments", "💬", Color(0xFF1B4FD8))
+                        CommunityStatColumn(Modifier.weight(1f), "${commentsList.size}", "Comments", "💬", Color(0xFF1B4FD8))
                         Box(Modifier.width(1.dp).height(48.dp).background(Color(0xFFF3F4F6)))
-                        CommunityStatColumn(Modifier.weight(1f), "${report.verificationCount * 6}", "Views", "👁️", Color(0xFF6B7280))
+                        CommunityStatColumn(Modifier.weight(1f), "${report.verificationCount * 6 + 12}", "Views", "👁️", Color(0xFF6B7280))
                     }
 
                     Spacer(Modifier.height(12.dp))
 
+                    // Self voting check
+                    val isOwnReport = remember(report.id, authManager.userName) {
+                        report.id.startsWith("local_") || (authManager.userName != null && report.title.contains(authManager.userName ?: ""))
+                    }
+
                     // Confirm button
                     OutlinedButton(
                         onClick = {
-                            if (!hasVerified) {
+                            if (!hasVerified && !isOwnReport) {
                                 coroutineScope.launch {
                                     val success = BackendClient.verifyHazard(hazardId)
                                     if (success) {
                                         hazardReport = report.copy(verificationCount = report.verificationCount + 1, verificationStatus = VerificationStatus.VERIFIED)
                                         hasVerified = true
-                                        Toast.makeText(context, "Report verified!", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "Report verified! +20 Impact Points", Toast.LENGTH_SHORT).show()
                                     } else {
                                         Toast.makeText(context, "Failed to verify.", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             }
                         },
+                        enabled = !hasVerified && !isOwnReport,
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                         shape = RoundedCornerShape(8.dp),
-                        border = BorderStroke(1.dp, if (hasVerified) Color(0xFFC7D2FE) else Color(0xFF1B4FD8)),
+                        border = BorderStroke(1.dp, if (isOwnReport) Color(0xFFE5E7EB) else if (hasVerified) Color(0xFFC7D2FE) else Color(0xFF1B4FD8)),
                         colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (hasVerified) Color(0xFFEEF2FF) else Color.Transparent
+                            containerColor = if (isOwnReport) Color(0xFFF3F4F6) else if (hasVerified) Color(0xFFEEF2FF) else Color.Transparent,
+                            disabledContainerColor = if (isOwnReport) Color(0xFFF3F4F6) else Color(0xFFEEF2FF)
                         )
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             Icon(
                                 if (hasVerified) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
                                 "Confirm", Modifier.size(18.dp),
-                                tint = if (hasVerified) Color(0xFF4338CA) else Color(0xFF1B4FD8)
+                                tint = if (isOwnReport) Color(0xFF9CA3AF) else if (hasVerified) Color(0xFF4338CA) else Color(0xFF1B4FD8)
                             )
                             Text(
-                                if (hasVerified) "You confirmed this · ${report.verificationCount} total" else "I Confirm This Hazard (${report.verificationCount})",
-                                fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
-                                color = if (hasVerified) Color(0xFF4338CA) else Color(0xFF1B4FD8)
+                                if (isOwnReport) "Only other citizens can confirm your report" else if (hasVerified) "You confirmed this · ${report.verificationCount} total" else "I Confirm This Hazard (${report.verificationCount})",
+                                fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                                color = if (isOwnReport) Color(0xFF6B7280) else if (hasVerified) Color(0xFF4338CA) else Color(0xFF1B4FD8)
                             )
                         }
                     }
@@ -588,55 +762,76 @@ fun DetailScreen(
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        SectionHeader(icon = Icons.Default.Email, label = "COMMENTS ($commentCount)")
-                        TextButton(onClick = { }) { Text("View All →", fontSize = 12.sp, color = Color(0xFF1B4FD8), fontWeight = FontWeight.SemiBold) }
-                    }
-
-                    Spacer(Modifier.height(4.dp))
-
-                    // Pinned official comment
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFEEF2FF)),
-                        shape = RoundedCornerShape(8.dp),
-                        border = BorderStroke(1.dp, Color(0xFFC7D2FE))
-                    ) {
-                        Column(Modifier.padding(10.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Icon(Icons.Filled.CheckCircle, "Official", Modifier.size(12.dp), tint = Color(0xFF6366F1))
-                                Text("Municipal Corporation", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF4338CA))
-                                Spacer(Modifier.weight(1f))
-                                Box(Modifier.background(Color(0xFFC7D2FE), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 1.dp)) {
-                                    Text("Official", fontSize = 9.sp, color = Color(0xFF4338CA), fontWeight = FontWeight.Bold)
-                                }
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Text("Complaint registered. Assigned to PWD Division. Expected repair within 7 working days.", fontSize = 13.sp, color = Color(0xFF374151), lineHeight = 18.sp)
-                        }
+                        SectionHeader(icon = Icons.Default.Email, label = "COMMENTS (${commentsList.size})")
                     }
 
                     Spacer(Modifier.height(8.dp))
+
+                    // Dynamic Comments List
+                    commentsList.forEach { comment ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                            colors = CardDefaults.cardColors(containerColor = if (comment.isOfficial) Color(0xFFEEF2FF) else Color(0xFFF9FAFB)),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(1.dp, if (comment.isOfficial) Color(0xFFC7D2FE) else Color(0xFFE5E7EB))
+                        ) {
+                            Column(Modifier.padding(10.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    if (comment.isOfficial) {
+                                        Icon(Icons.Filled.CheckCircle, "Official", Modifier.size(14.dp), tint = Color(0xFF6366F1))
+                                    } else {
+                                        Box(
+                                            Modifier.size(20.dp).background(Color(0xFFDBEAFE), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) { Text(comment.userName.take(1).uppercase(), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1D4ED8)) }
+                                    }
+                                    Text(comment.userName, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = if (comment.isOfficial) Color(0xFF4338CA) else Color(0xFF1F2937))
+                                    Spacer(Modifier.weight(1f))
+                                    Text(comment.timeAgo, fontSize = 10.sp, color = Color(0xFF9CA3AF))
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(comment.text, fontSize = 13.sp, color = Color(0xFF374151), lineHeight = 18.sp)
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(6.dp))
 
                     // Add comment input
                     var commentText by remember { mutableStateOf("") }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(
-                            Modifier.size(32.dp).background(Color(0xFFEEF2FF), CircleShape),
+                            Modifier.size(36.dp).background(Color(0xFFEEF2FF), CircleShape),
                             contentAlignment = Alignment.Center
-                        ) { Text("U", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4338CA)) }
+                        ) { Text((authManager.userName ?: "C").take(1).uppercase(), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF4338CA)) }
                         OutlinedTextField(
                             value = commentText, onValueChange = { commentText = it },
-                            placeholder = { Text("Add a comment...", fontSize = 13.sp, color = Color(0xFF9CA3AF)) },
-                            modifier = Modifier.weight(1f).height(44.dp),
-                            shape = RoundedCornerShape(20.dp),
+                            placeholder = { Text("Add a comment...", fontSize = 13.sp, color = Color(0xFF6B7280)) },
+                            modifier = Modifier.weight(1f).height(52.dp),
+                            shape = RoundedCornerShape(24.dp),
                             colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = Color(0xFF1B4FD8), unfocusedBorderColor = Color(0xFFE5E7EB),
-                                focusedContainerColor = Color.White, unfocusedContainerColor = Color.White
+                                focusedBorderColor = Color(0xFF1B4FD8), unfocusedBorderColor = Color(0xFFD1D5DB),
+                                focusedContainerColor = Color(0xFFF3F4F6), unfocusedContainerColor = Color(0xFFF9FAFB),
+                                focusedTextColor = Color(0xFF1F2937), unfocusedTextColor = Color(0xFF1F2937)
                             ),
                             singleLine = true,
                             trailingIcon = {
-                                IconButton(onClick = { if (commentText.isNotBlank()) { Toast.makeText(context, "Comment posted!", Toast.LENGTH_SHORT).show(); commentText = "" } }, enabled = commentText.isNotBlank()) {
-                                    Icon(Icons.Outlined.Send, "Send", Modifier.size(18.dp), tint = if (commentText.isNotBlank()) Color(0xFF1B4FD8) else Color(0xFFD1D5DB))
+                                IconButton(
+                                    onClick = {
+                                        if (commentText.isNotBlank()) {
+                                            val author = authManager.userName ?: "Citizen"
+                                            val txt = commentText.trim()
+                                            commentText = ""
+                                            commentsList.add(0, CommentItem(author, txt, "Just now"))
+                                            coroutineScope.launch {
+                                                BackendClient.postComment(hazardId, txt, author)
+                                            }
+                                            Toast.makeText(context, "Comment posted!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    enabled = commentText.isNotBlank()
+                                ) {
+                                    Icon(Icons.Outlined.Send, "Send", Modifier.size(18.dp), tint = if (commentText.isNotBlank()) Color(0xFF1B4FD8) else Color(0xFF9CA3AF))
                                 }
                             },
                             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 13.sp)

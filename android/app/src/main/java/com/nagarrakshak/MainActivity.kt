@@ -156,15 +156,17 @@ fun AppMainScreen() {
                     },
                     containerColor = Color(0xFF1B4FD8),
                     contentColor = Color.White,
-                    shape = RoundedCornerShape(16.dp),
-                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 6.dp, pressedElevation = 12.dp),
-                    modifier = Modifier.padding(bottom = 16.dp, end = 8.dp)
+                    shape = CircleShape,
+                    elevation = FloatingActionButtonDefaults.elevation(defaultElevation = 8.dp, pressedElevation = 14.dp),
+                    modifier = Modifier
+                        .size(64.dp)
+                        .offset(y = (-12).dp, x = (-4).dp)
                 ) {
-                    Box(modifier = Modifier.size(36.dp), contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.size(42.dp), contentAlignment = Alignment.Center) {
                         CameraLineIcon(color = Color.White)
                         Box(
                             modifier = Modifier
-                                .size(13.dp)
+                                .size(16.dp)
                                 .background(Color(0xFF22C55E), CircleShape)
                                 .align(Alignment.TopEnd),
                             contentAlignment = Alignment.Center
@@ -172,7 +174,7 @@ fun AppMainScreen() {
                             Text(
                                 text = "+",
                                 color = Color.White,
-                                fontSize = 9.sp,
+                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 style = androidx.compose.ui.text.TextStyle(
                                     platformStyle = androidx.compose.ui.text.PlatformTextStyle(

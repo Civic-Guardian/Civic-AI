@@ -105,10 +105,12 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
     var description by remember { mutableStateOf("") }
     var severity by remember { mutableStateOf("Pending AI Analysis") }
     var confidenceScore by remember { mutableStateOf("94%") }
-    var analysisReason by remember { mutableStateOf("Large open pothole with water accumulation poses risk to vehicles and pedestrians.") }
+    var analysisReason by remember { mutableStateOf("") }
+    var availableCategories by remember { mutableStateOf(listOf("Pothole", "Waterlogging", "Broken Light", "Road Collapse", "Other")) }
     
     var geminiAnalysisEnabled by remember { mutableStateOf(true) }
     var petitionEnabled by remember { mutableStateOf(true) }
+    var isLoadingSettings by remember { mutableStateOf(true) }
     
     var isAnalyzing by remember { mutableStateOf(false) }
     var isEditingDetails by remember { mutableStateOf(false) }
@@ -126,6 +128,8 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
 
     var capturedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var stagedImageBase64 by remember { mutableStateOf<String?>(null) }
+    val selectedBitmaps = remember { androidx.compose.runtime.mutableStateListOf<Bitmap>() }
+    val selectedImageBase64s = remember { androidx.compose.runtime.mutableStateListOf<String>() }
     var userLatLng by remember { mutableStateOf<LatLng?>(null) }
     var uploadedImageUrl by remember { mutableStateOf<String?>(null) }
 
@@ -217,14 +221,12 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
     }
 
     LaunchedEffect(stagedImageBase64) {
-        if (stagedImageBase64 != null && scanProgress == 0f) {
+        if (geminiAnalysisEnabled && currentStep == 1 && stagedImageBase64 != null && scanProgress == 0f) {
             startScanningSimulation()
         }
     }
 
-    // User details inputs for step 2
-    var userNameInput by remember { mutableStateOf(authManager.userName ?: "") }
-    var userMobileInput by remember { mutableStateOf("") }
+
 
     // Collapsible states
     var isSummaryExpanded by remember { mutableStateOf(false) }
@@ -240,7 +242,12 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
             val byteArrayOutputStream = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteArrayOutputStream)
             val byteArray = byteArrayOutputStream.toByteArray()
-            stagedImageBase64 = Base64.encodeToString(byteArray, Base64.NO_WRAP)
+            val b64 = Base64.encodeToString(byteArray, Base64.NO_WRAP)
+            stagedImageBase64 = b64
+            if (selectedBitmaps.size < 3) {
+                selectedBitmaps.add(bitmap)
+                selectedImageBase64s.add(b64)
+            }
             Toast.makeText(context, "Image captured successfully!", Toast.LENGTH_SHORT).show()
         }
     }
@@ -258,7 +265,12 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
                     val byteArrayOutputStream = ByteArrayOutputStream()
                     bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteArrayOutputStream)
                     val byteArray = byteArrayOutputStream.toByteArray()
-                    stagedImageBase64 = Base64.encodeToString(byteArray, Base64.NO_WRAP)
+                    val b64 = Base64.encodeToString(byteArray, Base64.NO_WRAP)
+                    stagedImageBase64 = b64
+                    if (selectedBitmaps.size < 3) {
+                        selectedBitmaps.add(bitmap)
+                        selectedImageBase64s.add(b64)
+                    }
                     Toast.makeText(context, "Image uploaded successfully!", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
@@ -294,36 +306,45 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
     }
 
     LaunchedEffect(Unit) {
+        isLoadingSettings = true
         try {
             val settings = com.nagarrakshak.data.BackendClient.fetchSettings()
             geminiAnalysisEnabled = settings.optBoolean("gemini_analysis_enabled", true)
             petitionEnabled = settings.optBoolean("petition_enabled", true)
+            val catsArray = settings.optJSONArray("categories")
+            if (catsArray != null && catsArray.length() > 0) {
+                val catList = mutableListOf<String>()
+                for (i in 0 until catsArray.length()) {
+                    catList.add(catsArray.getString(i))
+                }
+                availableCategories = catList
+            }
             if (!geminiAnalysisEnabled) {
                 currentStep = 2
-                selectedCategory = "Pothole"
-                severity = "Medium Risk"
-                gpsCoordinates = "2/F-61, Vistar Yojna, Mahaveer Nagar, Kota 324009"
-                userLatLng = LatLng(25.18254, 75.82736)
+                if (selectedCategory.isBlank()) {
+                    selectedCategory = availableCategories.firstOrNull() ?: "Pothole"
+                }
+                if (severity == "Pending AI Analysis") {
+                    severity = "Medium Risk"
+                }
             }
         } catch (e: Exception) {
             android.util.Log.e("ReportScreen", "Failed to load settings: ${e.message}", e)
+        } finally {
+            isLoadingSettings = false
         }
 
         val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
         val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
         if (hasFine || hasCoarse) {
             fetchRealLocation(context) { lat, lng, address ->
-                if (geminiAnalysisEnabled) {
-                    gpsCoordinates = address
-                    userLatLng = LatLng(lat, lng)
-                }
+                gpsCoordinates = address
+                userLatLng = LatLng(lat, lng)
             }
         } else {
-            if (geminiAnalysisEnabled) {
-                locationPermissionsLauncher.launch(
-                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-                )
-            }
+            locationPermissionsLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
         }
     }
 
@@ -362,52 +383,6 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("🖼️ Select from Gallery")
-                    }
-
-                    HorizontalDivider(color = Color(0xFFE2E8F0), thickness = 1.dp, modifier = Modifier.padding(vertical = 4.dp))
-
-                    Text("Or select a mock simulation photo:", fontSize = 12.sp, color = Color.Gray)
-
-                    Button(
-                        onClick = {
-                            selectedPhotoOption = "Pothole Photo"
-                            description = "There is a deep asphalt pothole in the middle of Sector 17 main road. It is highly dangerous for bikes."
-                            stagedImageBase64 = MOCK_TINY_JPEG_BASE64
-                            capturedBitmap = null
-                            showDialog = false
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF475569)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("🧪 Mock Pothole Photo")
-                    }
-                    
-                    Button(
-                        onClick = {
-                            selectedPhotoOption = "Open Drain Photo"
-                            description = "An uncovered roadside gutter drainage has been left open near the school gate. Pedestrians can fall in."
-                            stagedImageBase64 = MOCK_TINY_JPEG_BASE64
-                            capturedBitmap = null
-                            showDialog = false
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF475569)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("🧪 Mock Open Drain Photo")
-                    }
-
-                    Button(
-                        onClick = {
-                            selectedPhotoOption = "Garbage Pile Photo"
-                            description = "A massive public trash pile is blocking the sidewalk in Ward 5, emitting bad odor and attracting flies."
-                            stagedImageBase64 = MOCK_TINY_JPEG_BASE64
-                            capturedBitmap = null
-                            showDialog = false
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF475569)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("🧪 Mock Garbage Dump Photo")
                     }
                 }
             },
@@ -523,7 +498,9 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
 
             // Screen Step Content
             Box(modifier = Modifier.weight(1f)) {
-                if (geminiAnalysisEnabled) {
+                if (isLoadingSettings) {
+                    StepTwoAiAnalysisSkeleton()
+                } else if (geminiAnalysisEnabled) {
                     when (currentStep) {
                         1 -> StepOneUploadAndScanContent(
                             stagedImageBase64 = stagedImageBase64,
@@ -558,10 +535,6 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
                                     gpsCoordinates = gpsCoordinates,
                                     petitionText = petitionText ?: "",
                                     onPetitionChange = { petitionText = it },
-                                    userName = userNameInput,
-                                    onNameChange = { userNameInput = it },
-                                    userMobile = userMobileInput,
-                                    onMobileChange = { userMobileInput = it },
                                     isSummaryExpanded = isSummaryExpanded,
                                     onSummaryToggle = { isSummaryExpanded = !isSummaryExpanded },
                                     isPetitionExpanded = isPetitionExpanded,
@@ -592,7 +565,16 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
                                         isEditingDetails = false
                                     },
                                     geminiAnalysisEnabled = geminiAnalysisEnabled,
-                                    petitionEnabled = petitionEnabled
+                                    petitionEnabled = petitionEnabled,
+                                    availableCategories = availableCategories,
+                                    selectedBitmaps = selectedBitmaps,
+                                    onRemovePhoto = { idx ->
+                                        if (idx in selectedBitmaps.indices) {
+                                            selectedBitmaps.removeAt(idx)
+                                            selectedImageBase64s.removeAt(idx)
+                                            if (selectedImageBase64s.isNotEmpty()) stagedImageBase64 = selectedImageBase64s[0] else stagedImageBase64 = null
+                                        }
+                                    }
                                 )
                             } else {
                                 StepTwoAiAnalysisContent(
@@ -654,10 +636,6 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
                             gpsCoordinates = gpsCoordinates,
                             petitionText = petitionText ?: "",
                             onPetitionChange = { petitionText = it },
-                            userName = userNameInput,
-                            onNameChange = { userNameInput = it },
-                            userMobile = userMobileInput,
-                            onMobileChange = { userMobileInput = it },
                             isSummaryExpanded = isSummaryExpanded,
                             onSummaryToggle = { isSummaryExpanded = !isSummaryExpanded },
                             isPetitionExpanded = isPetitionExpanded,
@@ -685,49 +663,77 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
                                 }
                             },
                             onSubmitClick = {
-                                if (userNameInput.isBlank() || userMobileInput.isBlank()) {
-                                    Toast.makeText(context, "Please enter your name and mobile number to authenticate the report.", Toast.LENGTH_SHORT).show()
-                                    return@StepTwoScanResultsContent
-                                }
-                                coroutineScope.launch {
-                                    isAnalyzing = true
-                                    var finalImgUrl: String? = null
-                                    if (stagedImageBase64 != null) {
-                                        try {
-                                            val uploadRes = com.nagarrakshak.data.BackendClient.analyzeHazardImage(
-                                                imageBase64 = stagedImageBase64 ?: "",
-                                                latitude = userLatLng?.latitude ?: 25.18254,
-                                                longitude = userLatLng?.longitude ?: 75.82736,
-                                                description = analysisReason,
-                                                city = "Kota",
-                                                userName = userNameInput
-                                            )
-                                            finalImgUrl = uploadRes.optString("image_path")
-                                        } catch (e: Exception) {
-                                            android.util.Log.e("ReportScreen", "Failed to upload image: ${e.message}", e)
-                                        }
-                                    }
-                                    val success = com.nagarrakshak.data.BackendClient.submitHazard(
-                                        category = selectedCategory,
-                                        locationName = gpsCoordinates,
-                                        latitude = userLatLng?.latitude ?: 25.18254,
-                                        longitude = userLatLng?.longitude ?: 75.82736,
-                                        severity = severity,
-                                        description = analysisReason,
-                                        aiAnalysisSummary = "Reason: $analysisReason\n\nPetition:\n$petitionText",
-                                        imagePath = finalImgUrl
-                                    )
-                                    isAnalyzing = false
-                                    if (success) {
-                                        Toast.makeText(context, "Civic report submitted successfully!", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        Toast.makeText(context, "Submitted successfully (offline fallback saved locally)", Toast.LENGTH_SHORT).show()
-                                    }
-                                    onReportSubmitted()
-                                }
-                            },
+                                 coroutineScope.launch {
+                                     isAnalyzing = true
+                                     var finalImgUrl: String? = null
+                                     if (selectedImageBase64s.isNotEmpty()) {
+                                         try {
+                                             val uploadedUrls = mutableListOf<String>()
+                                             for (imgB64 in selectedImageBase64s) {
+                                                 val uploadRes = com.nagarrakshak.data.BackendClient.analyzeHazardImage(
+                                                     imageBase64 = imgB64,
+                                                     latitude = userLatLng?.latitude ?: 25.18254,
+                                                     longitude = userLatLng?.longitude ?: 75.82736,
+                                                     description = analysisReason,
+                                                     city = "Kota",
+                                                     userName = authManager.userName ?: "Citizen"
+                                                 )
+                                                 val path = uploadRes.optString("image_path")
+                                                 if (!path.isNullOrBlank()) {
+                                                     uploadedUrls.add(path)
+                                                 }
+                                             }
+                                             if (uploadedUrls.isNotEmpty()) {
+                                                 finalImgUrl = uploadedUrls.joinToString(",")
+                                             }
+                                         } catch (e: Exception) {
+                                             android.util.Log.e("ReportScreen", "Failed to upload images: ${e.message}", e)
+                                         }
+                                     } else if (stagedImageBase64 != null) {
+                                         try {
+                                             val uploadRes = com.nagarrakshak.data.BackendClient.analyzeHazardImage(
+                                                 imageBase64 = stagedImageBase64 ?: "",
+                                                 latitude = userLatLng?.latitude ?: 25.18254,
+                                                 longitude = userLatLng?.longitude ?: 75.82736,
+                                                 description = analysisReason,
+                                                 city = "Kota",
+                                                 userName = authManager.userName ?: "Citizen"
+                                             )
+                                             finalImgUrl = uploadRes.optString("image_path")
+                                         } catch (e: Exception) {
+                                             android.util.Log.e("ReportScreen", "Failed to upload image: ${e.message}", e)
+                                         }
+                                     }
+                                     val success = com.nagarrakshak.data.BackendClient.submitHazard(
+                                         category = selectedCategory,
+                                         locationName = gpsCoordinates,
+                                         latitude = userLatLng?.latitude ?: 25.18254,
+                                         longitude = userLatLng?.longitude ?: 75.82736,
+                                         severity = severity,
+                                         description = analysisReason,
+                                         aiAnalysisSummary = "Reason: $analysisReason\n\nPetition:\n$petitionText",
+                                         imagePath = finalImgUrl
+                                     )
+                                     isAnalyzing = false
+                                     if (success) {
+                                         Toast.makeText(context, "Civic report submitted successfully!", Toast.LENGTH_SHORT).show()
+                                     } else {
+                                         Toast.makeText(context, "Submitted successfully (offline fallback saved locally)", Toast.LENGTH_SHORT).show()
+                                     }
+                                     onReportSubmitted()
+                                 }
+                             },
                             geminiAnalysisEnabled = geminiAnalysisEnabled,
-                            petitionEnabled = petitionEnabled
+                            petitionEnabled = petitionEnabled,
+                            availableCategories = availableCategories,
+                            selectedBitmaps = selectedBitmaps,
+                            onRemovePhoto = { idx ->
+                                if (idx in selectedBitmaps.indices) {
+                                    selectedBitmaps.removeAt(idx)
+                                    selectedImageBase64s.removeAt(idx)
+                                    if (selectedImageBase64s.isNotEmpty()) stagedImageBase64 = selectedImageBase64s[0] else stagedImageBase64 = null
+                                }
+                            }
                         )
                     }
                 }
@@ -1162,10 +1168,6 @@ fun StepTwoScanResultsContent(
     gpsCoordinates: String,
     petitionText: String,
     onPetitionChange: (String) -> Unit,
-    userName: String,
-    onNameChange: (String) -> Unit,
-    userMobile: String,
-    onMobileChange: (String) -> Unit,
     isSummaryExpanded: Boolean,
     onSummaryToggle: () -> Unit,
     isPetitionExpanded: Boolean,
@@ -1176,7 +1178,10 @@ fun StepTwoScanResultsContent(
     onCopyPetition: () -> Unit,
     onSubmitClick: () -> Unit,
     geminiAnalysisEnabled: Boolean,
-    petitionEnabled: Boolean
+    petitionEnabled: Boolean,
+    availableCategories: List<String> = listOf("Pothole", "Waterlogging", "Broken Light", "Road Collapse", "Other"),
+    selectedBitmaps: List<Bitmap> = emptyList(),
+    onRemovePhoto: (Int) -> Unit = {}
 ) {
     if (geminiAnalysisEnabled) {
         Column(
@@ -1433,28 +1438,7 @@ fun StepTwoScanResultsContent(
                 }
             }
 
-            // Your Details Section
-            Text(text = "👤 Your Details", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-            Row(
-                modifier = Modifier.fillMaxWidth().offset(y = (-8).dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedTextField(
-                    value = userName,
-                    onValueChange = onNameChange,
-                    label = { Text("Your Name", fontSize = 12.sp) },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
-                )
 
-                OutlinedTextField(
-                    value = userMobile,
-                    onValueChange = onMobileChange,
-                    label = { Text("Mobile Number", fontSize = 12.sp) },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
-                )
-            }
 
             // Submit Button
             Button(
@@ -1477,7 +1461,6 @@ fun StepTwoScanResultsContent(
             }
         }
     } else {
-        var hasPhotoSlot1 by remember { mutableStateOf(true) }
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -1511,7 +1494,7 @@ fun StepTwoScanResultsContent(
                                 .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            val chips = listOf("Pothole", "Waterlogging", "Broken Light", "Road Collapse", "Other")
+                            val chips = availableCategories
                             chips.forEach { chip ->
                                 val isSelected = selectedCategory == chip
                                 Box(
@@ -1811,58 +1794,40 @@ fun StepTwoScanResultsContent(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(80.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                            ) {
-                                if (hasPhotoSlot1) {
-                                    Image(
-                                        painter = androidx.compose.ui.res.painterResource(id = com.nagarrakshak.R.drawable.placeholder_hazard),
-                                        contentDescription = "Evidence Thumbnail",
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.TopEnd)
-                                            .padding(4.dp)
-                                            .size(20.dp)
-                                            .background(Color(0xFFDC2626), shape = CircleShape)
-                                            .clickable {
-                                                hasPhotoSlot1 = false
-                                            },
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Remove",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(12.dp)
+                            for (i in 0..2) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(80.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                ) {
+                                    if (i < selectedBitmaps.size) {
+                                        Image(
+                                            bitmap = selectedBitmaps[i].asImageBitmap(),
+                                            contentDescription = "Evidence Thumbnail $i",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
                                         )
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(4.dp)
+                                                .size(20.dp)
+                                                .background(Color(0xFFDC2626), shape = CircleShape)
+                                                .clickable { onRemovePhoto(i) },
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Remove",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(12.dp)
+                                            )
+                                        }
+                                    } else {
+                                        EmptyPhotoSlot(onClick = onChooseImageClick)
                                     }
-                                } else {
-                                    EmptyPhotoSlot(onClick = onChooseImageClick)
                                 }
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(80.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                            ) {
-                                EmptyPhotoSlot(onClick = onChooseImageClick)
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(80.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                            ) {
-                                EmptyPhotoSlot(onClick = onChooseImageClick)
                             }
                         }
                         Spacer(modifier = Modifier.height(8.dp))

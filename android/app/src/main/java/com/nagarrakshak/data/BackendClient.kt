@@ -20,8 +20,15 @@ import java.net.URL
 
 object BackendClient {
     private const val TAG = "BackendClient"
-    private const val BASE_HOST = "https://nagarakshak.showcodebase.space"
-    private const val BASE_URL = "$BASE_HOST/api"
+    private var activeHostIndex = 0
+    private val candidateHosts = listOf(
+        "http://10.0.2.2:8000",
+        "http://34.131.42.184",
+        "http://127.0.0.1:8000",
+        "http://localhost:8000"
+    )
+    private var BASE_HOST = candidateHosts[0]
+    private var BASE_URL = "$BASE_HOST/api"
     private const val PREFS_NAME = "nagarrakshak_offline_reports"
     private const val KEY_REPORTS = "offline_reports"
 
@@ -104,35 +111,45 @@ object BackendClient {
     suspend fun fetchNearbyHazards(): List<HazardReport> = withContext(Dispatchers.IO) {
         val localList = getOfflineHazards()
         val serverList = mutableListOf<HazardReport>()
-        try {
-            val url = URL("$BASE_URL/hazards")
-            val conn = url.openConnection() as HttpURLConnection
-            conn.requestMethod = "GET"
-            conn.connectTimeout = 3000
-            conn.readTimeout = 3000
-            conn.setRequestProperty("Accept", "application/json")
-            token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
 
-            if (conn.responseCode == HttpURLConnection.HTTP_OK) {
-                val reader = BufferedReader(InputStreamReader(conn.inputStream))
-                val response = StringBuilder()
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    response.append(line)
-                }
-                reader.close()
+        // Try candidate hosts dynamically
+        val hostsToTry = listOf(BASE_HOST) + candidateHosts.filter { it != BASE_HOST }
+        for (host in hostsToTry) {
+            try {
+                val url = URL("$host/api/hazards")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "GET"
+                conn.connectTimeout = 2000
+                conn.readTimeout = 2000
+                conn.setRequestProperty("Accept", "application/json")
+                token?.let { conn.setRequestProperty("Authorization", "Bearer $it") }
 
-                val jsonResponse = JSONObject(response.toString())
-                if (jsonResponse.optBoolean("success", false)) {
-                    val dataArray = jsonResponse.getJSONArray("data")
-                    for (i in 0 until dataArray.length()) {
-                        val obj = dataArray.getJSONObject(i)
-                        serverList.add(parseHazard(obj))
+                if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                    val reader = BufferedReader(InputStreamReader(conn.inputStream))
+                    val response = StringBuilder()
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        response.append(line)
+                    }
+                    reader.close()
+
+                    val jsonResponse = JSONObject(response.toString())
+                    if (jsonResponse.optBoolean("success", false)) {
+                        val dataArray = jsonResponse.getJSONArray("data")
+                        for (i in 0 until dataArray.length()) {
+                            val obj = dataArray.getJSONObject(i)
+                            serverList.add(parseHazard(obj))
+                        }
+                        // Successfully fetched from server! Update active BASE_HOST & BASE_URL
+                        BASE_HOST = host
+                        BASE_URL = "$host/api"
+                        Log.d(TAG, "Successfully fetched ${serverList.size} hazards from $host")
+                        break
                     }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Host $host unreachable: ${e.message}")
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching hazards from backend: ${e.message}", e)
         }
         return@withContext localList + serverList
     }
@@ -368,6 +385,50 @@ object BackendClient {
     }
 
     /**
+     * Fetch discussion comments for a hazard.
+     */
+    suspend fun fetchComments(hazardId: String): List<JSONObject> = withContext(Dispatchers.IO) {
+        val response = executeRequest("GET", "hazards/$hazardId/comments")
+        val list = mutableListOf<JSONObject>()
+        if (response != null) {
+            try {
+                val json = JSONObject(response)
+                if (json.optBoolean("success", false)) {
+                    val data = json.getJSONArray("data")
+                    for (i in 0 until data.length()) {
+                        list.add(data.getJSONObject(i))
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing comments", e)
+            }
+        }
+        return@withContext list
+    }
+
+    /**
+     * Post a new comment for a hazard.
+     */
+    suspend fun postComment(hazardId: String, content: String, userName: String): JSONObject? = withContext(Dispatchers.IO) {
+        val body = JSONObject().apply {
+            put("content", content)
+            put("user_name", userName)
+        }
+        val response = executeRequest("POST", "hazards/$hazardId/comments", body.toString())
+        if (response != null) {
+            try {
+                val json = JSONObject(response)
+                if (json.optBoolean("success", false)) {
+                    return@withContext json.getJSONObject("data")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error posting comment", e)
+            }
+        }
+        return@withContext null
+    }
+
+    /**
      * Parse single JSONObject to HazardReport model.
      */
     private fun parseHazard(obj: JSONObject): HazardReport {
@@ -419,7 +480,8 @@ object BackendClient {
                     else -> "$BASE_HOST/storage/$path"
                 }
             },
-            rawSeverity = severityStr
+            rawSeverity = severityStr,
+            status = statusStr
         )
     }
 

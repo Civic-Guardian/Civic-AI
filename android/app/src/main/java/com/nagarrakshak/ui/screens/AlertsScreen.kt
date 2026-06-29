@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import com.nagarrakshak.data.BackendClient
 import com.nagarrakshak.data.models.HazardReport
 import com.nagarrakshak.data.models.Severity
@@ -44,14 +45,24 @@ fun AlertsScreen(
     onNavigateToDetail: (String) -> Unit,
     onNavigateToNotifications: () -> Unit
 ) {
+    val context = LocalContext.current
     var alertsList by remember { mutableStateOf<List<HazardReport>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var selectedTab by remember { mutableStateOf("All") }
     var selectedChips by remember { mutableStateOf<Set<String>>(emptySet()) }
     var searchQuery by remember { mutableStateOf("") }
 
+    var currentCityName by remember { mutableStateOf("Kota") }
+    var currentAreaName by remember { mutableStateOf("Talwandi") }
+    var userPincode by remember { mutableStateOf("324005") }
+
     LaunchedEffect(Unit) {
         isLoading = true
+        fetchHomeLocation(context) { city, area, pincode ->
+            currentCityName = city
+            currentAreaName = area
+            userPincode = pincode
+        }
         alertsList = BackendClient.fetchNearbyHazards()
         isLoading = false
     }
@@ -61,15 +72,32 @@ fun AlertsScreen(
     val lowCount = remember(alertsList) { alertsList.count { it.severity == Severity.LOW } }
     val totalCount = alertsList.size
 
-    val filteredList = remember(alertsList, selectedTab, selectedChips, searchQuery) {
-        var list = alertsList
+    val sortedAlerts = remember(alertsList, userPincode, currentCityName, currentAreaName) {
+        alertsList.sortedWith(compareByDescending<HazardReport> { alert ->
+            val loc = alert.locationName.lowercase()
+            val pin = userPincode.lowercase()
+            val city = currentCityName.lowercase()
+            val area = currentAreaName.lowercase()
+            when {
+                loc.contains(pin) || (area.length > 2 && loc.contains(area)) -> 2
+                city.length > 2 && loc.contains(city) -> 1
+                else -> 0
+            }
+        })
+    }
+
+    val filteredList = remember(sortedAlerts, selectedTab, selectedChips, searchQuery, userPincode, currentAreaName, currentCityName) {
+        var list = sortedAlerts
 
         when (selectedTab) {
             "High" -> list = list.filter { it.severity == Severity.HIGH }
             "Medium" -> list = list.filter { it.severity == Severity.MEDIUM }
             "Low" -> list = list.filter { it.severity == Severity.LOW }
-            "Nearby" -> list = list.sortedBy {
-                kotlin.math.abs(it.latitude - 25.182) + kotlin.math.abs(it.longitude - 75.828)
+            "Nearby" -> list = list.filter { alert ->
+                val loc = alert.locationName.lowercase()
+                loc.contains(userPincode.lowercase()) ||
+                (currentAreaName.length > 2 && loc.contains(currentAreaName.lowercase())) ||
+                (currentCityName.length > 2 && loc.contains(currentCityName.lowercase()))
             }
         }
 
@@ -392,7 +420,8 @@ fun AlertCardRedesigned(alert: HazardReport, onClick: () -> Unit) {
             Row(Modifier.fillMaxWidth().padding(16.dp)) {
                 // Image thumbnail with severity badge overlay
                 Box(Modifier.size(width = 96.dp, height = 96.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFF1F5F9))) {
-                    val model = if (!alert.imageUrl.isNullOrBlank()) alert.imageUrl else com.nagarrakshak.R.drawable.placeholder_hazard
+                    val firstUrl = alert.imageUrl?.split(",")?.firstOrNull()?.trim()
+                    val model = if (!firstUrl.isNullOrBlank()) firstUrl else com.nagarrakshak.R.drawable.placeholder_hazard
                     coil.compose.AsyncImage(model = model, contentDescription = "Alert Photo", modifier = Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
                     Box(Modifier.align(Alignment.BottomStart).padding(6.dp).background(severityColor, RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
                         Text(text = severityBadgeText, color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold)

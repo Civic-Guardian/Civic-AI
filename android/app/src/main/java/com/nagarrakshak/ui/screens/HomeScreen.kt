@@ -16,6 +16,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.CornerRadius
@@ -85,11 +87,42 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     var currentCityName by remember { mutableStateOf("Kota") }
+    var currentAreaName by remember { mutableStateOf("Talwandi") }
     var userLatLng by remember { mutableStateOf<LatLng?>(null) }
     var userPincode by remember { mutableStateOf("324005") }
     var showScoreDialog by remember { mutableStateOf(false) }
     var alertsList by remember { mutableStateOf<List<HazardReport>>(emptyList()) }
+    var searchQuery by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
+
+    val sortedAlerts = remember(alertsList, userPincode, currentCityName, currentAreaName) {
+        alertsList.sortedWith(compareByDescending<HazardReport> { alert ->
+            val loc = alert.locationName.lowercase()
+            val pin = userPincode.lowercase()
+            val city = currentCityName.lowercase()
+            val area = currentAreaName.lowercase()
+            when {
+                loc.contains(pin) || (area.length > 2 && loc.contains(area)) -> 2
+                city.length > 2 && loc.contains(city) -> 1
+                else -> 0
+            }
+        })
+    }
+
+    val filteredAlerts = remember(sortedAlerts, searchQuery) {
+        if (searchQuery.isBlank()) {
+            sortedAlerts
+        } else {
+            val query = searchQuery.trim().lowercase()
+            sortedAlerts.filter { alert ->
+                alert.category.lowercase().contains(query) ||
+                alert.title.lowercase().contains(query) ||
+                alert.locationName.lowercase().contains(query) ||
+                alert.description.lowercase().contains(query) ||
+                alert.severity.name.lowercase().contains(query)
+            }
+        }
+    }
 
     val safetyScore = remember(alertsList, userPincode, userLatLng) {
         val currentLatLng = userLatLng
@@ -137,8 +170,9 @@ fun HomeScreen(
         val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
         val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
         if (fineGranted || coarseGranted) {
-            fetchHomeLocation(context) { city, pincode ->
+            fetchHomeLocation(context) { city, area, pincode ->
                 currentCityName = city
+                currentAreaName = area
                 userPincode = pincode
             }
             fetchCurrentLocationLatLng(context) { latLng ->
@@ -151,8 +185,9 @@ fun HomeScreen(
         val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
         val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
         if (hasFine || hasCoarse) {
-            fetchHomeLocation(context) { city, pincode ->
+            fetchHomeLocation(context) { city, area, pincode ->
                 currentCityName = city
+                currentAreaName = area
                 userPincode = pincode
             }
             fetchCurrentLocationLatLng(context) { latLng ->
@@ -219,24 +254,41 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Top Left: City name "Kota" in white 20px Bold with a dropdown chevron
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+                // Top Left: Area & City name + Pincode badge
+                Column(
                     modifier = Modifier.clickable { onNavigateToMap() }
                 ) {
-                    Text(
-                        text = currentCityName,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Spacer(modifier = Modifier.width(2.dp))
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Change Location",
-                        tint = Color.White,
-                        modifier = Modifier.size(20.dp)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = if (currentAreaName.isNotBlank() && currentAreaName != currentCityName) "$currentAreaName, $currentCityName" else currentCityName,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.KeyboardArrowDown,
+                            contentDescription = "Change Location",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.LocationOn,
+                            contentDescription = null,
+                            tint = Color(0xFF4ADE80),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text(
+                            text = "PIN: $userPincode",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFFCBD5E1)
+                        )
+                    }
                 }
                 
                 // Top Right: Score badge (circular shows "82") + bell icon with notification dot
@@ -293,10 +345,9 @@ fun HomeScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
             ) {
-                var searchInput by remember { mutableStateOf("") }
                 OutlinedTextField(
-                    value = searchInput,
-                    onValueChange = { searchInput = it },
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
                     placeholder = { 
                         Text(
                             "Search hazards, areas, landmarks...",
@@ -312,10 +363,20 @@ fun HomeScreen(
                         ) 
                     },
                     trailingIcon = {
-                        MicLineIcon(
-                            color = Color(0xFF6B7280),
-                            modifier = Modifier.size(20.dp)
-                        )
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Clear search",
+                                    tint = Color(0xFF6B7280)
+                                )
+                            }
+                        } else {
+                            MicLineIcon(
+                                color = Color(0xFF6B7280),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(8.dp),
@@ -503,11 +564,40 @@ fun HomeScreen(
                 }
             }
 
-            // Nearby Alerts List (show max 5 on home)
-            val displayAlerts = alertsList.take(5)
-            if (isLoading || alertsList.isEmpty()) {
+            // Nearby Alerts List (show max 5 when not searching, or all matching search results)
+            val displayAlerts = if (searchQuery.isBlank()) filteredAlerts.take(5) else filteredAlerts
+            if (isLoading) {
                 items(3) {
                     SkeletonAlertCard()
+                }
+            } else if (displayAlerts.isEmpty()) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        border = BorderStroke(1.dp, Color(0xFFE5E7EB)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = Color(0xFF9CA3AF),
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = if (searchQuery.isNotBlank()) "No hazards found matching \"$searchQuery\"" else "No nearby hazards reported",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF4B5563),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
                 }
             } else {
                 items(count = displayAlerts.size, key = { index -> displayAlerts[index].id }) { index ->
@@ -597,7 +687,8 @@ fun NearbyAlertVerticalCard(
                         .background(Color(0xFFF3F4F6)),
                     contentAlignment = Alignment.Center
                 ) {
-                    val model = if (!imageUrl.isNullOrBlank()) imageUrl else com.nagarrakshak.R.drawable.placeholder_hazard
+                    val firstUrl = imageUrl?.split(",")?.firstOrNull()?.trim()
+                    val model = if (!firstUrl.isNullOrBlank()) firstUrl else com.nagarrakshak.R.drawable.placeholder_hazard
                     coil.compose.AsyncImage(
                         model = model,
                         contentDescription = "Hazard Thumbnail",
@@ -791,9 +882,9 @@ fun BrokenStreetLightIllustration() {
 }
 
 /**
- * Fetch home location (city name) using LocationManager and reverse geocoding.
+ * Fetch home location (city name, area name, pincode) using LocationManager and reverse geocoding.
  */
-fun fetchHomeLocation(context: Context, onLocationInfo: (String, String) -> Unit) {
+fun fetchHomeLocation(context: Context, onLocationInfo: (String, String, String) -> Unit) {
     try {
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val isGpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
@@ -816,9 +907,11 @@ fun fetchHomeLocation(context: Context, onLocationInfo: (String, String) -> Unit
         if (location != null) {
             val geocoder = Geocoder(context, Locale.getDefault())
             val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
-            val cityName = addresses?.firstOrNull()?.locality ?: addresses?.firstOrNull()?.subAdminArea ?: "Chandigarh"
-            val pincode = addresses?.firstOrNull()?.postalCode ?: "324005"
-            onLocationInfo(cityName, pincode)
+            val addr = addresses?.firstOrNull()
+            val cityName = addr?.locality ?: addr?.subAdminArea ?: "Kota"
+            val areaName = addr?.subLocality ?: addr?.thoroughfare ?: addr?.featureName ?: "Talwandi"
+            val pincode = addr?.postalCode ?: "324005"
+            onLocationInfo(cityName, areaName, pincode)
         } else {
             val provider = if (isNetworkEnabled) LocationManager.NETWORK_PROVIDER else LocationManager.GPS_PROVIDER
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
@@ -829,11 +922,13 @@ fun fetchHomeLocation(context: Context, onLocationInfo: (String, String) -> Unit
                         try {
                             val geocoder = Geocoder(context, Locale.getDefault())
                             val addresses = geocoder.getFromLocation(loc.latitude, loc.longitude, 1)
-                            val cityName = addresses?.firstOrNull()?.locality ?: addresses?.firstOrNull()?.subAdminArea ?: "Chandigarh"
-                            val pincode = addresses?.firstOrNull()?.postalCode ?: "324005"
-                            onLocationInfo(cityName, pincode)
+                            val addr = addresses?.firstOrNull()
+                            val cityName = addr?.locality ?: addr?.subAdminArea ?: "Kota"
+                            val areaName = addr?.subLocality ?: addr?.thoroughfare ?: addr?.featureName ?: "Talwandi"
+                            val pincode = addr?.postalCode ?: "324005"
+                            onLocationInfo(cityName, areaName, pincode)
                         } catch (e: Exception) {
-                            onLocationInfo("Chandigarh", "324005")
+                            onLocationInfo("Kota", "Talwandi", "324005")
                         }
                     }
                     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
@@ -843,7 +938,7 @@ fun fetchHomeLocation(context: Context, onLocationInfo: (String, String) -> Unit
             }
         }
     } catch (e: Exception) {
-        onLocationInfo("Chandigarh", "324005")
+        onLocationInfo("Kota", "Talwandi", "324005")
     }
 }
 

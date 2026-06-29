@@ -550,7 +550,8 @@ fun RecentSubmissionCard(
                 .background(Color(0xFFF1F5F9)),
             contentAlignment = Alignment.Center
         ) {
-            val model = if (!alert.imageUrl.isNullOrBlank()) alert.imageUrl else com.nagarrakshak.R.drawable.placeholder_hazard
+            val firstUrl = alert.imageUrl?.split(",")?.firstOrNull()?.trim()
+            val model = if (!firstUrl.isNullOrBlank()) firstUrl else com.nagarrakshak.R.drawable.placeholder_hazard
             coil.compose.AsyncImage(
                 model = model,
                 contentDescription = "Hazard Photo",
