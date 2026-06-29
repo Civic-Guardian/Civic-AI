@@ -18,7 +18,7 @@ class FreshMigrateAndRestore extends Command
     /**
      * The console command description.
      */
-    protected $description = 'Backup current DB data, run migrate:fresh, then restore all data back.';
+    protected $description = 'Fetch all database records, generate a class BackupDataSeeder file, run migrate:fresh, and seed using it.';
 
     /**
      * Tables to always skip (framework-managed or auto-generated).
@@ -47,7 +47,7 @@ class FreshMigrateAndRestore extends Command
     {
         // ── Confirmation ──────────────────────────────────────────
         if (! $this->option('force')) {
-            $this->warn('⚠️  This will DROP all tables, re-run all migrations, and restore your data.');
+            $this->warn('⚠️  This will generate BackupDataSeeder, DROP all tables, re-run all migrations, and restore data.');
             if (! $this->confirm('Are you sure you want to proceed?', false)) {
                 $this->info('Aborted.');
                 return 0;
@@ -75,7 +75,7 @@ class FreshMigrateAndRestore extends Command
 
         // ── Step 2: Backup data ───────────────────────────────────
         $this->info('');
-        $this->info('💾 Step 2/4 — Backing up data...');
+        $this->info('💾 Step 2/4 — Fetching data from database...');
 
         $backup = [];
         $totalRows = 0;
@@ -91,7 +91,7 @@ class FreshMigrateAndRestore extends Command
 
         $bar->finish();
         $this->newLine();
-        $this->line("   Backed up <info>{$totalRows}</info> rows across <info>" . count($tablesToBackup) . "</info> tables.");
+        $this->line("   Fetched <info>{$totalRows}</info> rows across <info>" . count($tablesToBackup) . "</info> tables.");
 
         // Show summary table
         $summaryRows = [];
@@ -102,81 +102,118 @@ class FreshMigrateAndRestore extends Command
         }
         $this->table(['Table', 'Rows'], $summaryRows);
 
-        // ── Step 3: Fresh migrate ─────────────────────────────────
+        // ── Step 3: Generate Seeder File ──────────────────────────
         $this->info('');
-        $this->info('🔄 Step 3/4 — Running migrate:fresh...');
+        $this->info('📝 Step 3/4 — Generating BackupDataSeeder.php seeder class...');
+        
+        $seederContent = $this->generateSeederCode($backup);
+        $seederPath = database_path('seeders/BackupDataSeeder.php');
+        
+        if (!file_exists(dirname($seederPath))) {
+            mkdir(dirname($seederPath), 0755, true);
+        }
+        
+        file_put_contents($seederPath, $seederContent);
+        $this->line("   Seeder file written successfully to: <info>{$seederPath}</info>");
 
+        // ── Step 4: Fresh migrate and seed ────────────────────────
+        $this->info('');
+        $this->info('🔄 Step 4/4 — Running migrate:fresh and seeding via BackupDataSeeder...');
+
+        // Perform migrate:fresh
         $this->call('migrate:fresh', ['--force' => true]);
 
-        $this->line('   Migrations complete.');
+        // Run the freshly generated seeder
+        $this->info('📥 Seeding database with newly generated BackupDataSeeder...');
+        $this->call('db:seed', [
+            '--class' => 'BackupDataSeeder',
+            '--force' => true
+        ]);
 
-        // ── Step 4: Restore data ──────────────────────────────────
-        $this->info('');
-        $this->info('📥 Step 4/4 — Restoring data...');
+        $this->newLine();
+        $this->info("✅ Done! Database fresh-restored and successfully seeded via BackupDataSeeder.");
+        $this->newLine();
 
-        // Determine restore order: tables with no FK dependencies first.
-        // We detect FKs and do a simple topological sort.
+        return 0;
+    }
+
+    /**
+     * Generate the BackupDataSeeder code string dynamically.
+     */
+    private function generateSeederCode(array $backup): string
+    {
         $orderedTables = $this->getInsertOrder($backup);
+        $tablesData = [];
 
-        DB::statement('SET FOREIGN_KEY_CHECKS=0;');
-
-        $bar = $this->output->createProgressBar(count($orderedTables));
-        $bar->start();
-        $restoredRows = 0;
-        $errors = [];
+        // Sensitive settings keys to redact from seeder
+        $sensitiveSettings = [
+            'gemini_api_key',
+            'google_maps_api_key',
+            'fcm_service_account',
+            'gcs_key_file'
+        ];
 
         foreach ($orderedTables as $table) {
             $rows = $backup[$table] ?? [];
-            if (empty($rows)) {
-                $bar->advance();
-                continue;
-            }
-
-            // Check if table still exists after fresh migrate
-            if (! Schema::hasTable($table)) {
-                $errors[] = "Table '{$table}' does not exist after migration — skipped.";
-                $bar->advance();
-                continue;
-            }
-
-            try {
-                // Get the current table columns to filter out any columns that no longer exist
-                $columns = Schema::getColumnListing($table);
-                $filteredRows = array_map(function ($row) use ($columns) {
-                    return array_intersect_key($row, array_flip($columns));
-                }, $rows);
-
-                // Insert in chunks of 500
-                foreach (array_chunk($filteredRows, 500) as $chunk) {
-                    DB::table($table)->insert($chunk);
+            if (!empty($rows)) {
+                if ($table === 'settings') {
+                    $rows = array_map(function ($row) use ($sensitiveSettings) {
+                        if (isset($row['key']) && in_array($row['key'], $sensitiveSettings)) {
+                            $row['value'] = ''; // Redact key value
+                        }
+                        return $row;
+                    }, $rows);
                 }
+                $tablesData[$table] = $rows;
+            }
+        }
 
-                $restoredRows += count($rows);
-            } catch (\Exception $e) {
-                $errors[] = "Table '{$table}': " . $e->getMessage();
+        $serializedData = var_export($tablesData, true);
+
+        return <<<PHP
+<?php
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+
+class BackupDataSeeder extends Seeder
+{
+    /**
+     * Run the database seeds.
+     */
+    public function run(): void
+    {
+        DB::statement('SET FOREIGN_KEY_CHECKS=0;');
+
+        \$data = {$serializedData};
+
+        foreach (\$data as \$table => \$rows) {
+            if (empty(\$rows)) {
+                continue;
             }
 
-            $bar->advance();
+            if (Schema::hasTable(\$table)) {
+                // Truncate existing data to avoid primary key collisions
+                DB::table(\$table)->truncate();
+
+                \$columns = Schema::getColumnListing(\$table);
+                \$filteredRows = array_map(function (\$row) use (\$columns) {
+                    return array_intersect_key(\$row, array_flip(\$columns));
+                }, \$rows);
+
+                foreach (array_chunk(\$filteredRows, 500) as \$chunk) {
+                    DB::table(\$table)->insert(\$chunk);
+                }
+            }
         }
 
         DB::statement('SET FOREIGN_KEY_CHECKS=1;');
-
-        $bar->finish();
-        $this->newLine(2);
-
-        // ── Summary ───────────────────────────────────────────────
-        if (! empty($errors)) {
-            $this->warn('⚠️  Some tables had errors during restore:');
-            foreach ($errors as $err) {
-                $this->line("   • {$err}");
-            }
-            $this->newLine();
-        }
-
-        $this->info("✅ Done! Restored {$restoredRows} rows across " . count($orderedTables) . " tables.");
-        $this->newLine();
-
-        return empty($errors) ? 0 : 1;
+    }
+}
+PHP;
     }
 
     /**

@@ -14,6 +14,22 @@
       },
       "oauth_client": [
         {
+          "client_id": "280377628764-pudlbqic104epqvqipgdmblt68sfi9a9.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nagarrakshak",
+            "certificate_hash": "36a5294bfee359e0a6c81de135dd35deda9bbeea"
+          }
+        },
+        {
+          "client_id": "280377628764-r29bi0t51v1s6pcknj8gslmdk58a51kb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.nagarrakshak",
+            "certificate_hash": "d5d29982d5214464ab122c4831ed19ba1a508b41"
+          }
+        },
+        {
           "client_id": "280377628764-8qlvml30baqnumrne1s2r99u7nkn5rd8.apps.googleusercontent.com",
           "client_type": 3
         }

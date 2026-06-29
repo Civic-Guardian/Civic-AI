@@ -22,8 +22,8 @@ object BackendClient {
     private const val TAG = "BackendClient"
     private var activeHostIndex = 0
     private val candidateHosts = listOf(
-        "http://10.0.2.2:8000",
         "http://34.131.42.184",
+        "http://10.0.2.2:8000",
         "http://127.0.0.1:8000",
         "http://localhost:8000"
     )
