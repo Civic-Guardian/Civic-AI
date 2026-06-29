@@ -562,6 +562,56 @@ body{
 }
 .btn-s:hover{border-color:#fff;transform:translateY(-1px);}
 
+/* ── DOWNLOAD APP BUTTON ── */
+.btn-download{
+  background:linear-gradient(135deg, #22C55E 0%, #16A34A 100%);
+  color:#fff;
+  padding:16px 40px;border-radius:12px;
+  font-size:16px;font-weight:700;
+  border:none;cursor:pointer;text-decoration:none;
+  display:inline-flex;align-items:center;gap:10px;
+  transition:all .25s ease;
+  letter-spacing:.3px;
+  box-shadow:0 8px 30px rgba(22,163,74,0.4);
+  position:relative;overflow:hidden;
+}
+.btn-download:hover{
+  transform:translateY(-2px);
+  box-shadow:0 12px 40px rgba(22,163,74,0.55);
+}
+.btn-download::after{
+  content:'';
+  position:absolute;top:0;left:-100%;width:100%;height:100%;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,0.15),transparent);
+  animation:btn-shimmer 2.5s ease infinite;
+}
+@keyframes btn-shimmer{0%{left:-100%}100%{left:100%}}
+.btn-download-sm{
+  background:linear-gradient(135deg, #22C55E 0%, #16A34A 100%);
+  color:#fff;
+  padding:8px 18px;border-radius:8px;
+  font-size:11px;font-weight:700;
+  border:none;cursor:pointer;text-decoration:none;
+  display:inline-flex;align-items:center;gap:6px;
+  transition:all .2s ease;
+  letter-spacing:.3px;
+  box-shadow:0 4px 15px rgba(22,163,74,0.3);
+  white-space:nowrap;
+}
+.btn-download-sm:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(22,163,74,0.45);}
+.download-icon{font-size:1.2em;}
+
+/* Hero download strip */
+.hero-download-strip{
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  margin-top:36px;
+}
+.hero-download-strip .dl-note{
+  font-size:12px;color:rgba(255,255,255,.5);
+  font-family:'DM Mono',monospace;
+  letter-spacing:.5px;
+}
+
 /* ── FOOTER ── */
 footer{
   background:var(--green-950);
@@ -633,6 +683,10 @@ footer{
     <a href="#download" class="nav-link">Join Movement</a>
   </nav>
   <div class="masthead-right">
+    @php $apkUrl = \App\Services\SettingsService::get('app_update_url'); @endphp
+    @if($apkUrl)
+      <a href="{{ $apkUrl }}" class="btn-download-sm" download>📲 Download App</a>
+    @endif
     <div class="live-pill"><span class="live-dot"></span><span class="live-text">Community Network Active</span></div>
     <div class="masthead-date" id="hdr-date"></div>
   </div>
@@ -681,6 +735,17 @@ footer{
       </div>
     </div>
 
+    <!-- DOWNLOAD APP STRIP -->
+    @php $heroApkUrl = \App\Services\SettingsService::get('app_update_url'); @endphp
+    @if($heroApkUrl)
+    <div class="hero-download-strip">
+      <a href="{{ $heroApkUrl }}" class="btn-download" download>
+        📲 <span>Download Nagar Rakshak App</span>
+      </a>
+      <span class="dl-note">Free · Android · No ads · No data sold</span>
+    </div>
+    @endif
+ <br>
     <div class="stat-grid">
       <div class="stat-cell">
         <div class="stat-num r">19,500+</div>
@@ -1011,6 +1076,12 @@ footer{
       We cannot fix the roads ourselves, but by filing a 30-second report, your alert immediately broadcasts to fellow citizens nearby. If we save even one life, we have won.
     </p>
     <div class="cta-btns">
+      @php $ctaApkUrl = \App\Services\SettingsService::get('app_update_url'); @endphp
+      @if($ctaApkUrl)
+        <a href="{{ $ctaApkUrl }}" class="btn-download" download>
+          📲 <span>Download App Now — It's Free</span>
+        </a>
+      @endif
       <a href="/admin/dashboard" class="btn-p">🛡️ Launch Intelligence Portal</a>
       <a href="#manifesto" class="btn-s">📖 Read Community Pledge</a>
     </div>
