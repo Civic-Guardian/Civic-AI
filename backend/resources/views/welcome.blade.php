@@ -685,7 +685,7 @@ footer{
   <div class="masthead-right">
     @php $apkUrl = \App\Services\SettingsService::get('app_update_url'); @endphp
     @if($apkUrl)
-      <a href="{{ $apkUrl }}" class="btn-download-sm" download>📲 Download App</a>
+      {{-- <a href="{{ $apkUrl }}" class="btn-download-sm" download>📲 Download App</a> --}}
     @endif
     <div class="live-pill"><span class="live-dot"></span><span class="live-text">Community Network Active</span></div>
     <div class="masthead-date" id="hdr-date"></div>

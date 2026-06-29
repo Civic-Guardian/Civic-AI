@@ -62,10 +62,18 @@ fun SplashScreen(
         }
 
         delay(800) // Keep splash screen visible for a moment
-        
+
+        // Fetch current version dynamically from PackageInfo
+        val currentVersion = try {
+            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            packageInfo.versionName ?: "1.0"
+        } catch (e: Exception) {
+            "1.0"
+        }
+
         if (maintenanceMode) {
             onNavigateToMaintenance()
-        } else if (mandatoryUpdate && isOlderVersion(updateVersion, "1.2.0")) {
+        } else if (mandatoryUpdate && isOlderVersion(updateVersion, currentVersion)) {
             onNavigateToUpdate(updateVersion)
         } else {
             if (authManager.isLoggedIn || authManager.isGuest) {
