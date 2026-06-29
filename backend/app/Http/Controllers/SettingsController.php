@@ -163,29 +163,97 @@ class SettingsController extends Controller
     }
 
     /**
-     * Update maintenance mode and app update parameters.
+     * Update maintenance mode and app update parameters (with GCP APK release upload).
      */
     public function updateMaintenance(Request $request)
     {
         $request->validate([
             'app_version' => 'required|string|max:20',
-            'app_update_url' => 'nullable|url',
+            'apk_file' => 'nullable|file|max:102400',
+            'app_update_url' => 'nullable|string',
         ]);
 
         SettingsService::set('maintenance_mode', $request->has('maintenance_mode') ? '1' : '0');
         SettingsService::set('app_version', $request->app_version);
         SettingsService::set('app_update_mandatory', $request->has('app_update_mandatory') ? '1' : '0');
-        SettingsService::set('app_update_url', $request->app_update_url);
+
+        if ($request->hasFile('apk_file')) {
+            try {
+                $file = $request->file('apk_file');
+                $filename = 'nagarrakshak_v' . str_replace('.', '_', $request->app_version) . '_' . time() . '.apk';
+                
+                if (config('filesystems.disks.gcs.bucket')) {
+                    $path = \Illuminate\Support\Facades\Storage::disk('gcs')->putFileAs('apks', $file, $filename, 'public');
+                    $url = \Illuminate\Support\Facades\Storage::disk('gcs')->url($path);
+                } else {
+                    $path = $file->storeAs('apks', $filename, 'public');
+                    $url = asset('storage/' . $path);
+                }
+                SettingsService::set('app_update_url', $url);
+            } catch (\Exception $e) {
+                $file = $request->file('apk_file');
+                $filename = 'nagarrakshak_v' . str_replace('.', '_', $request->app_version) . '_' . time() . '.apk';
+                $path = $file->storeAs('apks', $filename, 'public');
+                $url = asset('storage/' . $path);
+                SettingsService::set('app_update_url', $url);
+            }
+        } elseif ($request->filled('app_update_url')) {
+            SettingsService::set('app_update_url', $request->app_update_url);
+        }
 
         ActivityLog::create([
             'user_id' => auth()->id(),
             'type' => 'Admin',
             'action' => 'Settings Updated',
-            'description' => 'Updated Maintenance mode and App Update configuration settings.',
+            'description' => 'Uploaded new APK release to GCP Storage and updated App Version configurations.',
             'ip_address' => request()->ip(),
             'user_agent' => request()->userAgent()
         ]);
 
-        return redirect()->back()->with('success', 'Maintenance & App Update configurations saved successfully!');
+        return redirect()->back()->with('success', 'APK release uploaded to GCP Storage and app update targets saved successfully!');
+    }
+
+    /**
+     * Update Hackathon Showcase Incidents photos & text on welcome.blade.php
+     */
+    public function updateShowcase(Request $request)
+    {
+        for ($i = 1; $i <= 6; $i++) {
+            if ($request->filled("showcase_{$i}_title")) {
+                SettingsService::set("showcase_{$i}_title", $request->input("showcase_{$i}_title"));
+            }
+            if ($request->filled("showcase_{$i}_location")) {
+                SettingsService::set("showcase_{$i}_location", $request->input("showcase_{$i}_location"));
+            }
+            if ($request->hasFile("showcase_{$i}_image")) {
+                try {
+                    $file = $request->file("showcase_{$i}_image");
+                    $filename = "showcase_{$i}_" . time() . '.' . $file->getClientOriginalExtension();
+                    $mime = $file->getClientMimeType() ?: 'image/jpeg';
+
+                    $gcs = new \App\Services\GcsService();
+                    $url = $gcs->uploadImage(file_get_contents($file->getRealPath()), $filename, $mime);
+
+                    if (!$url) {
+                        $path = $file->storeAs('uploads/showcase', $filename, 'public');
+                        $url = 'uploads/showcase/' . $filename;
+                    }
+                    SettingsService::set("showcase_{$i}_image", $url);
+                } catch (\Exception $e) {
+                    \Illuminate\Support\Facades\Log::error("Failed to upload showcase {$i} image to GCP: " . $e->getMessage());
+                }
+            }
+        }
+
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'type' => 'Admin',
+            'action' => 'Showcase Updated',
+            'description' => 'Updated Hackathon homepage showcase images and incident details.',
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent()
+        ]);
+
+        return redirect()->back()->with('success', 'Hackathon showcase incident media and titles updated successfully!');
     }
 }

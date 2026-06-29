@@ -34,6 +34,7 @@ Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
     // Case Management (Hazards)
     Route::get('cases', [CaseController::class, 'index'])->name('cases.index');
     Route::get('cases/{id}', [CaseController::class, 'show'])->name('cases.show');
+    Route::post('cases/{id}/upload-image', [CaseController::class, 'uploadImage'])->name('cases.upload-image');
     Route::post('cases/{id}/verify', [CaseController::class, 'verify'])->name('cases.verify');
     Route::post('cases/{id}/reject', [CaseController::class, 'reject'])->name('cases.reject');
     Route::post('cases/{id}/resolve', [CaseController::class, 'resolve'])->name('cases.resolve');
@@ -77,6 +78,7 @@ Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
     Route::get('settings', [SettingsController::class, 'index'])->name('settings.index');
     Route::post('settings/alerts', [SettingsController::class, 'updateAlerts'])->name('settings.alerts');
     Route::post('settings/system', [SettingsController::class, 'updateSystem'])->name('settings.system');
+    Route::post('settings/showcase', [SettingsController::class, 'updateShowcase'])->name('settings.showcase');
     Route::post('settings/maintenance', [SettingsController::class, 'updateMaintenance'])->name('settings.maintenance');
     Route::post('settings/categories', [SettingsController::class, 'storeCategory'])->name('settings.categories.store');
     Route::post('settings/categories/{id}', [SettingsController::class, 'updateCategory'])->name('settings.categories.update');

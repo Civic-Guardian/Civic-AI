@@ -14,6 +14,11 @@ class SettingsApiController extends Controller
      */
     public function index()
     {
+        $dbCategories = \App\Models\Category::where('is_active', true)->pluck('name')->toArray();
+        if (empty($dbCategories)) {
+            $dbCategories = ['Pothole', 'Waterlogging', 'Broken Light', 'Road Collapse', 'Other'];
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -26,6 +31,7 @@ class SettingsApiController extends Controller
                 'app_version' => SettingsService::get('app_version', '1.2.0'),
                 'app_update_mandatory' => SettingsService::get('app_update_mandatory', '0') === '1',
                 'app_update_url' => SettingsService::get('app_update_url', ''),
+                'categories' => $dbCategories,
             ]
         ]);
     }

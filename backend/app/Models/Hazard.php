@@ -28,6 +28,11 @@ class Hazard extends Model
         return $this->hasMany(Verification::class);
     }
 
+    public function comments()
+    {
+        return $this->hasMany(Comment::class)->orderBy('created_at', 'desc');
+    }
+
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');
@@ -41,6 +46,32 @@ class Hazard extends Model
     public function aiAnalysis()
     {
         return $this->hasOne(AiAnalysis::class);
+    }
+
+    public function getImageUrlsAttribute()
+    {
+        if (!$this->image_path) {
+            return [];
+        }
+        $paths = explode(',', $this->image_path);
+        $urls = [];
+        foreach ($paths as $p) {
+            $p = trim($p);
+            if (!empty($p)) {
+                if (\Illuminate\Support\Str::startsWith($p, ['http://', 'https://'])) {
+                    $urls[] = $p;
+                } else {
+                    $urls[] = asset('storage/' . $p);
+                }
+            }
+        }
+        return $urls;
+    }
+
+    public function getThumbnailUrlAttribute()
+    {
+        $urls = $this->image_urls;
+        return count($urls) > 0 ? $urls[0] : null;
     }
 
     public function getAuditTimeline()

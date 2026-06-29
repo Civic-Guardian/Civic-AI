@@ -77,12 +77,8 @@
                         <td>#{{ $hazard->id }}</td>
                         <td>
                             <div class="rounded-3 border bg-light d-flex align-items-center justify-content-center overflow-hidden" style="width: 48px; height: 48px;">
-                                @if($hazard->image_path)
-                                    @if(Str::startsWith($hazard->image_path, ['http://', 'https://']))
-                                        <img src="{{ $hazard->image_path }}" alt="Thumbnail" style="width: 100%; height: 100%; object-fit: cover;">
-                                    @else
-                                        <img src="{{ asset('storage/' . $hazard->image_path) }}" alt="Thumbnail" style="width: 100%; height: 100%; object-fit: cover;">
-                                    @endif
+                                @if($hazard->thumbnail_url)
+                                    <img src="{{ $hazard->thumbnail_url }}" alt="Thumbnail" style="width: 100%; height: 100%; object-fit: cover;">
                                 @else
                                     <i class="fa-solid fa-image text-muted"></i>
                                 @endif

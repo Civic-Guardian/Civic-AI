@@ -80,6 +80,13 @@ class HazardApiController extends Controller
                 'created_by' => $userId,
             ]);
 
+            // Execute radius notification dispatch instantly to trigger FCM push alerts & create notification record
+            try {
+                \App\Jobs\SendRadiusNotificationJob::dispatchSync($hazard, $userId);
+            } catch (\Exception $ne) {
+                \Illuminate\Support\Facades\Log::error("Failed to dispatch radius notification job: " . $ne->getMessage());
+            }
+
             return response()->json([
                 'success' => true,
                 'data' => $hazard

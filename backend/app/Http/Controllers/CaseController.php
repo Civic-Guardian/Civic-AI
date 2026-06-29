@@ -140,4 +140,48 @@ class CaseController extends Controller
 
         return redirect()->route('admin.cases.index')->with('success', 'Case deleted successfully!');
     }
+
+    /**
+     * Upload an evidence image for a past incident / hazard case directly to GCP Cloud Storage.
+     */
+    public function uploadImage(Request $request, $id)
+    {
+        $request->validate([
+            'image' => 'required|image|mimes:jpeg,png,jpg,webp|max:10240',
+        ]);
+
+        $hazard = Hazard::findOrFail($id);
+        $file = $request->file('image');
+        $filename = 'hazard_' . $hazard->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+        $mime = $file->getClientMimeType() ?: 'image/jpeg';
+
+        // Upload to GCP Cloud Storage via GcsService
+        $gcs = new \App\Services\GcsService();
+        $url = $gcs->uploadImage(file_get_contents($file->getRealPath()), $filename, $mime);
+
+        if (!$url) {
+            // Local fallback if GCP credentials absent
+            $path = $file->storeAs('uploads/hazards', $filename, 'public');
+            $url = 'uploads/hazards/' . $filename;
+        }
+
+        // Append to existing comma-separated images or set initial
+        if (!empty($hazard->image_path)) {
+            $hazard->image_path = $hazard->image_path . ',' . $url;
+        } else {
+            $hazard->image_path = $url;
+        }
+        $hazard->save();
+
+        ActivityLog::create([
+            'user_id' => auth()->id(),
+            'type' => 'Admin',
+            'action' => 'Incident Image Uploaded',
+            'description' => "Uploaded new evidence photo for incident case #{$hazard->id} ({$hazard->category}).",
+            'ip_address' => request()->ip(),
+            'user_agent' => request()->userAgent()
+        ]);
+
+        return redirect()->back()->with('success', 'Incident photo uploaded successfully!');
+    }
 }

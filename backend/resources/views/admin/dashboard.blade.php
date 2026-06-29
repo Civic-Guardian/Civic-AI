@@ -6,8 +6,8 @@
 <div class="container-fluid">
     <div class="row mb-4">
         <div class="col">
-            <h2 class="fw-bold text-green">NagarRakshak Administration</h2>
-            <p class="text-muted">Real-time civic safety surveillance, reports routing, and Gemini AI analysis models.</p>
+            <h2 class="fw-bold text-dark mb-1" style="letter-spacing: -0.02em;">Municipal Safety Command Center</h2>
+            <p class="text-secondary" style="font-size: 0.95rem;">Real-time civic surveillance telemetry, risk routing, and Gemini AI intelligence models.</p>
         </div>
     </div>
 

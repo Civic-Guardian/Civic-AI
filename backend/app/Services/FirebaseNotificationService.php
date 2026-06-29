@@ -11,7 +11,7 @@ class FirebaseNotificationService
     /**
      * Send an FCM push notification.
      */
-    public function send(string $title, string $body, string $type, string $targetType, ?string $targetValue = null): array
+    public function send(string $title, string $body, string $type, string $targetType, ?string $targetValue = null, $creatorId = null): array
     {
         // Stub sending FCM notifications.
         $fcmProject = SettingsService::get('fcm_project_id');
@@ -43,7 +43,7 @@ class FirebaseNotificationService
         if ($targetType === 'Individual User') {
             $sentCount = 1;
             $deliveredCount = 1;
-        } elseif ($targetType === 'Radius Based') {
+        } elseif (str_contains($targetType, 'Radius Based')) {
             $sentCount = min(12, $totalUsers);
             $deliveredCount = $sentCount;
         }
@@ -56,7 +56,7 @@ class FirebaseNotificationService
             'target_type' => $targetType,
             'sent_count' => $sentCount,
             'delivered_count' => $deliveredCount,
-            'creator_id' => auth()->id()
+            'creator_id' => $creatorId ?? auth()->id()
         ]);
 
         if ($fcmToken && $fcmProject) {

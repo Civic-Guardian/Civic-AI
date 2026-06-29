@@ -32,20 +32,47 @@
                 </div>
 
                 <!-- Image container -->
-                <div class="rounded-4 mb-4 overflow-hidden border bg-light d-flex align-items-center justify-content-center" style="height: 350px; position: relative;">
-                    @if($hazard->image_path)
-                        @if(Str::startsWith($hazard->image_path, ['http://', 'https://']))
-                            <img src="{{ $hazard->image_path }}" alt="Hazard Image" style="width: 100%; height: 100%; object-fit: cover;">
+                <div class="mb-4">
+                    <div class="rounded-4 overflow-hidden border bg-light d-flex align-items-center justify-content-center" style="height: 350px; position: relative;">
+                        @if(count($hazard->image_urls) > 0)
+                            <img id="mainHazardImage" src="{{ $hazard->thumbnail_url }}" alt="Hazard Image" style="width: 100%; height: 100%; object-fit: cover;">
                         @else
-                            <img src="{{ asset('storage/' . $hazard->image_path) }}" alt="Hazard Image" style="width: 100%; height: 100%; object-fit: cover;">
+                            <div class="text-center text-muted">
+                                <i class="fa-regular fa-image fa-4x mb-3"></i>
+                                <h5>No uploaded image file</h5>
+                                <p style="font-size:0.8rem;">Local mock environment camera stream</p>
+                            </div>
                         @endif
-                    @else
-                        <div class="text-center text-muted">
-                            <i class="fa-regular fa-image fa-4x mb-3"></i>
-                            <h5>No uploaded image file</h5>
-                            <p style="font-size:0.8rem;">Local mock environment camera stream</p>
+                    </div>
+                    @if(count($hazard->image_urls) > 1)
+                        <div class="d-flex gap-2 mt-2 overflow-auto pb-1">
+                            @foreach($hazard->image_urls as $imgIndex => $imgUrl)
+                                <img src="{{ $imgUrl }}" onclick="document.getElementById('mainHazardImage').src = this.src" class="rounded-3 border cursor-pointer thumbnail-hover" style="width: 70px; height: 70px; object-fit: cover; cursor: pointer;" alt="Evidence Photo {{ $imgIndex + 1 }}">
+                            @endforeach
                         </div>
                     @endif
+                </div>
+
+                <!-- Upload Incident Media Card -->
+                <div class="p-3 bg-light rounded-3 border mb-4">
+                    <form action="{{ route('admin.cases.upload-image', $hazard->id) }}" method="POST" enctype="multipart/form-data">
+                        @csrf
+                        <div class="d-flex align-items-center justify-content-between mb-2">
+                            <label class="form-label fw-bold text-dark m-0" style="font-size: 0.9rem;">
+                                <i class="fa-solid fa-camera text-primary me-1"></i> Upload Evidence Photo for Past Incident
+                            </label>
+                            <span class="badge bg-white text-secondary border">JPG, PNG, WEBP</span>
+                        </div>
+                        <div class="input-group">
+                            <input type="file" name="image" class="form-control form-control-sm" accept="image/*" required>
+                            <button type="submit" class="btn btn-sm btn-primary fw-bold px-3">
+                                <i class="fa-solid fa-cloud-arrow-up me-1"></i> Upload Media
+                            </button>
+                        </div>
+                        <small class="text-muted d-block mt-1.5" style="font-size: 0.75rem;">
+                            Uploaded photos will be linked directly to this incident case and displayed across citizen alerts.
+                        </small>
+                    </form>
                 </div>
 
                 <h5 class="fw-bold mb-3">Hazard Description</h5>
@@ -245,6 +272,32 @@
                         <small>System or Unknown User</small>
                     </div>
                 @endif
+            </div>
+
+            <!-- Community Discussion Card -->
+            <div class="card card-custom p-4 mb-4">
+                <h5 class="fw-bold mb-3"><i class="fa-solid fa-comments text-primary me-2"></i> Discussion Thread ({{ $hazard->comments->count() }})</h5>
+                <div class="list-group list-group-flush" style="max-height: 320px; overflow-y: auto;">
+                    @forelse($hazard->comments as $comment)
+                        <div class="list-group-item px-0 py-2 border-bottom">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <span class="fw-semibold text-dark" style="font-size: 0.85rem;">
+                                    @if($comment->is_official)
+                                        <i class="fa-solid fa-circle-check text-primary me-1"></i> <span class="badge bg-primary-subtle text-primary">{{ $comment->user_name }}</span>
+                                    @else
+                                        <i class="fa-regular fa-user me-1 text-muted"></i> {{ $comment->user_name }}
+                                    @endif
+                                </span>
+                                <small class="text-muted" style="font-size: 0.75rem;">{{ $comment->created_at ? $comment->created_at->diffForHumans() : 'Recently' }}</small>
+                            </div>
+                            <p class="mb-0 text-secondary" style="font-size: 0.85rem; line-height: 1.3;">{{ $comment->content }}</p>
+                        </div>
+                    @empty
+                        <div class="text-center text-muted py-3">
+                            <small>No community comments posted yet.</small>
+                        </div>
+                    @endforelse
+                </div>
             </div>
 
             <!-- Workflow Actions -->
