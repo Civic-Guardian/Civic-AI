@@ -83,10 +83,30 @@ Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
     Route::post('settings/categories', [SettingsController::class, 'storeCategory'])->name('settings.categories.store');
     Route::post('settings/categories/{id}', [SettingsController::class, 'updateCategory'])->name('settings.categories.update');
     Route::delete('settings/categories/{id}/delete', [SettingsController::class, 'destroyCategory'])->name('settings.categories.destroy');
+
+    // Developer Portal Docs Page
+    Route::get('dev-docs', [\App\Http\Controllers\DeveloperPortalController::class, 'index'])->name('dev-docs');
+});
+
+// Municipal Panel Routes
+Route::prefix('municipality')->name('municipality.')->group(function () {
+    Route::get('dashboard', [\App\Http\Controllers\MunicipalityPanelController::class, 'dashboard'])->name('dashboard');
+    Route::get('cases', [\App\Http\Controllers\MunicipalityPanelController::class, 'indexCases'])->name('cases.index');
+    Route::get('cases/{id}', [\App\Http\Controllers\MunicipalityPanelController::class, 'showCase'])->name('cases.show');
+    Route::post('cases/{id}/status', [\App\Http\Controllers\MunicipalityPanelController::class, 'updateStatus'])->name('cases.status');
+    Route::post('cases/{id}/comment', [\App\Http\Controllers\MunicipalityPanelController::class, 'storeComment'])->name('cases.comment');
 });
 
 // API Routes for Android Client
 Route::prefix('api')->group(function () {
+    // Developer API endpoints
+    Route::prefix('developer')->group(function () {
+        Route::get('billboards', [\App\Http\Controllers\Api\DeveloperApiController::class, 'billboards']);
+        Route::get('advertisements', [\App\Http\Controllers\Api\DeveloperApiController::class, 'advertisements']);
+        Route::get('road-notices', [\App\Http\Controllers\Api\DeveloperApiController::class, 'roadNotices']);
+        Route::get('ev-hazards', [\App\Http\Controllers\Api\DeveloperApiController::class, 'evHazards']);
+    });
+
     // Public Authentication endpoints
     Route::post('auth/register', [\App\Http\Controllers\Api\AuthApiController::class, 'register']);
     Route::post('auth/login', [\App\Http\Controllers\Api\AuthApiController::class, 'login']);

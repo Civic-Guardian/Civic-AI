@@ -454,6 +454,18 @@
                     <i class="fa-solid fa-gear"></i> System Settings
                 </a>
             </li>
+
+            <li class="sidebar-item">
+                <a href="{{ route('admin.dev-docs') }}" class="sidebar-link {{ Route::is('admin.dev-docs') ? 'active' : '' }}">
+                    <i class="fa-solid fa-code"></i> Developer Portal
+                </a>
+            </li>
+
+            <li class="sidebar-item">
+                <a href="/municipality/dashboard" class="sidebar-link" target="_blank">
+                    <i class="fa-solid fa-building-flag"></i> Municipal Panel
+                </a>
+            </li>
         </ul>
     </div>
 

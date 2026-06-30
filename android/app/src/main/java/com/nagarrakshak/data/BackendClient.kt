@@ -473,12 +473,15 @@ object BackendClient {
             description = obj.optString("description", ""),
             aiAnalysisSummary = if (obj.isNull("ai_analysis_summary")) null else obj.getString("ai_analysis_summary"),
             imageUrl = if (obj.isNull("image_path")) null else {
-                val path = obj.getString("image_path")
-                when {
-                    path.startsWith("http://") || path.startsWith("https://") -> path
-                    path.startsWith("/") -> "$BASE_HOST$path"
-                    else -> "$BASE_HOST/storage/$path"
-                }
+                val paths = obj.getString("image_path").split(",")
+                paths.map { p ->
+                    val trimmed = p.trim()
+                    when {
+                        trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+                        trimmed.startsWith("/") -> "$BASE_HOST$trimmed"
+                        else -> "$BASE_HOST/storage/$trimmed"
+                    }
+                }.joinToString(",")
             },
             rawSeverity = severityStr,
             status = statusStr

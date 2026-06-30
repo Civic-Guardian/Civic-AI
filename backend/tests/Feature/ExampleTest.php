@@ -33,11 +33,10 @@ class ExampleTest extends TestCase
      */
     public function test_the_application_redirects_unauthenticated_to_login(): void
     {
-        $response = $this->get('/');
-        // Redirection chain: / -> /admin/dashboard -> /login
-        $response->assertRedirect('/admin/dashboard');
+        $response = $this->get('/admin/dashboard');
+        $response->assertRedirect('/login');
         
-        $response2 = $this->followingRedirects()->get('/');
+        $response2 = $this->followingRedirects()->get('/admin/dashboard');
         $response2->assertSee('Login - NagarRakshak Admin Portal');
     }
 

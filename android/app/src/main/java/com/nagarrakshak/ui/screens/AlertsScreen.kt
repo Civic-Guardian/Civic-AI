@@ -456,12 +456,41 @@ fun AlertCardRedesigned(alert: HazardReport, onClick: () -> Unit) {
                     Spacer(Modifier.height(6.dp))
                     Text(if (alert.description.isBlank()) "No description provided." else alert.description, fontSize = 12.sp, color = Color(0xFF475569), maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 16.sp)
 
+                    val urls = alert.imageUrl?.split(",")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+                    if (urls.size > 1) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("COMMUNITY EVIDENCE (${urls.size} PHOTOS)", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color(0xFF64748B), letterSpacing = 0.5.sp)
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            urls.forEachIndexed { idx, url ->
+                                Card(
+                                    modifier = Modifier.size(40.dp),
+                                    shape = RoundedCornerShape(6.dp),
+                                    border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                                ) {
+                                    coil.compose.AsyncImage(
+                                        model = url,
+                                        contentDescription = "Evidence $idx",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Spacer(Modifier.height(10.dp))
 
                     // Category chips
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         AlertChip(severityLabel, "⚠️", severityBg, severityColor)
                         AlertChip(alert.category, bgColor = Color(0xFFF1F5F9), textColor = Color(0xFF475569))
+                        if (urls.size > 1) {
+                            AlertChip("Merged (${urls.size} Evidences)", bgColor = Color(0xFFDCFCE7), textColor = Color(0xFF16A34A))
+                        }
                         AlertChip("📍 ${String.format("%.1f", 0.1 + (kotlin.math.abs(alert.id.hashCode()) % 50) / 10.0)} km", bgColor = Color(0xFFF1F5F9), textColor = Color(0xFF475569))
                         AlertChip("Citizen Report", bgColor = Color(0xFFF1F5F9), textColor = Color(0xFF475569))
                     }
