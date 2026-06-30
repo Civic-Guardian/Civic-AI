@@ -60,9 +60,83 @@ class HazardApiController extends Controller
                     $user = \App\Models\User::where('remember_token', $token)->first();
                     if ($user) {
                         $userId = $user->id;
+                    }
+                }
+            }
+
+            // Duplicate/Merge detection logic (20 meters)
+            $matchingHazard = null;
+            $latitude = $validatedData['latitude'];
+            $longitude = $validatedData['longitude'];
+            $category = $validatedData['category'];
+
+            $activeHazards = Hazard::where('category', $category)
+                ->where('status', '!=', 'Resolved')
+                ->where('is_archived', false)
+                ->get();
+
+            foreach ($activeHazards as $hz) {
+                $earthRadius = 6371000; // in meters
+                $latFrom = deg2rad((float)$latitude);
+                $lonFrom = deg2rad((float)$longitude);
+                $latTo = deg2rad((float)$hz->latitude);
+                $lonTo = deg2rad((float)$hz->longitude);
+
+                $latDelta = $latTo - $latFrom;
+                $lonDelta = $lonTo - $lonFrom;
+
+                $angle = 2 * asin(sqrt(pow(sin($latDelta / 2), 2) +
+                    cos($latFrom) * cos($latTo) * pow(sin($lonDelta / 2), 2)));
+                
+                $distance = $angle * $earthRadius;
+
+                if ($distance <= 20) {
+                    $matchingHazard = $hz;
+                    break;
+                }
+            }
+
+            if ($matchingHazard) {
+                // Increment verification count (corroborations / evidence)
+                $matchingHazard->increment('verification_count');
+                
+                // Append new image path to list of images if provided and not already present
+                if (!empty($validatedData['image_path'])) {
+                    $newImg = $validatedData['image_path'];
+                    $existingPaths = empty($matchingHazard->image_path) ? [] : explode(',', $matchingHazard->image_path);
+                    $existingPaths = array_map('trim', $existingPaths);
+                    if (!in_array($newImg, $existingPaths)) {
+                        $existingPaths[] = $newImg;
+                        $matchingHazard->image_path = implode(',', $existingPaths);
+                    }
+                }
+
+                if ($matchingHazard->status === 'Pending') {
+                    $matchingHazard->status = 'Verified';
+                }
+                $matchingHazard->save();
+
+                if ($userId) {
+                    $user = \App\Models\User::find($userId);
+                    if ($user) {
                         $user->increment('reports_submitted');
                         $user->addReputationPoints(100);
                     }
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'data' => $matchingHazard,
+                    'merged' => true
+                ], 200);
+            }
+
+            // Create new hazard if no duplicate matches
+            if ($userId) {
+                $user = \App\Models\User::find($userId);
+                if ($user) {
+                    $user->increment('reports_submitted');
+                    $user->addReputationPoints(100);
                 }
             }
 

@@ -94,10 +94,10 @@ Route::prefix('api')->group(function () {
 
     // Public Hazards endpoints (accessible by guest and authenticated users)
     Route::get('hazards', [\App\Http\Controllers\Api\HazardApiController::class, 'getHazards']);
-    Route::post('hazards', [\App\Http\Controllers\Api\HazardApiController::class, 'storeHazard']);
 
     // Authenticated actions (verify/resolve/profile/settings require login)
     Route::middleware('api.auth')->group(function () {
+        Route::post('hazards', [\App\Http\Controllers\Api\HazardApiController::class, 'storeHazard']);
         Route::post('hazards/{id}/verify', [\App\Http\Controllers\Api\HazardApiController::class, 'verifyHazard']);
         Route::post('hazards/{id}/resolve', [\App\Http\Controllers\Api\HazardApiController::class, 'resolveHazard']);
 

@@ -114,6 +114,7 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
     
     var isAnalyzing by remember { mutableStateOf(false) }
     var isEditingDetails by remember { mutableStateOf(false) }
+    var isWaitingForAi by remember { mutableStateOf(false) }
     
     var scanProgress by remember { mutableStateOf(0f) }
     var clarityStatus by remember { mutableStateOf("Pending") }
@@ -169,7 +170,8 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
             // Step 2: Object detection
             delay(1000)
             scanProgress = 0.50f
-            objectStatus = "3 hazard objects found"
+            val randomCount = (1..3).random()
+            objectStatus = if (randomCount == 1) "1 hazard object found" else "$randomCount hazard objects found"
             severityStatus = "Processing..."
             
             // Step 3: Severity classification
@@ -186,8 +188,14 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
             delay(500)
             petitionStatus = "Passed"
             
+            // Show waiting overlay if Gemini API call is still active
+            if (apiJob.isActive) {
+                isWaitingForAi = true
+            }
+
             // Wait for the API call to complete
             apiJob.join()
+            isWaitingForAi = false
             
             // Now parse results and transition to step 2!
             val result = apiResult
@@ -242,15 +250,16 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
         contract = ActivityResultContracts.TakePicturePreview()
     ) { bitmap ->
         if (bitmap != null) {
-            capturedBitmap = bitmap
+            val resized = getResizedBitmap(bitmap, 1200)
+            capturedBitmap = resized
             selectedPhotoOption = "Captured Camera Photo"
             val byteArrayOutputStream = ByteArrayOutputStream()
-            bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteArrayOutputStream)
+            resized.compress(Bitmap.CompressFormat.JPEG, 85, byteArrayOutputStream)
             val byteArray = byteArrayOutputStream.toByteArray()
             val b64 = Base64.encodeToString(byteArray, Base64.NO_WRAP)
             stagedImageBase64 = b64
             if (selectedBitmaps.size < 3) {
-                selectedBitmaps.add(bitmap)
+                selectedBitmaps.add(resized)
                 selectedImageBase64s.add(b64)
             }
             Toast.makeText(context, "Image captured successfully!", Toast.LENGTH_SHORT).show()
@@ -265,15 +274,16 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
                 val inputStream = context.contentResolver.openInputStream(uri)
                 val bitmap = BitmapFactory.decodeStream(inputStream)
                 if (bitmap != null) {
-                    capturedBitmap = bitmap
+                    val resized = getResizedBitmap(bitmap, 1200)
+                    capturedBitmap = resized
                     selectedPhotoOption = "Uploaded Gallery Photo"
                     val byteArrayOutputStream = ByteArrayOutputStream()
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, byteArrayOutputStream)
+                    resized.compress(Bitmap.CompressFormat.JPEG, 85, byteArrayOutputStream)
                     val byteArray = byteArrayOutputStream.toByteArray()
                     val b64 = Base64.encodeToString(byteArray, Base64.NO_WRAP)
                     stagedImageBase64 = b64
                     if (selectedBitmaps.size < 3) {
-                        selectedBitmaps.add(bitmap)
+                        selectedBitmaps.add(resized)
                         selectedImageBase64s.add(b64)
                     }
                     Toast.makeText(context, "Image uploaded successfully!", Toast.LENGTH_SHORT).show()
@@ -528,72 +538,22 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
                             }
                         )
                         2 -> {
-                            if (isEditingDetails) {
-                                StepTwoScanResultsContent(
-                                    selectedCategory = selectedCategory,
-                                    onCategoryChange = { selectedCategory = it },
-                                    severity = severity,
-                                    onSeverityChange = { severity = it },
-                                    confidenceScore = confidenceScore,
-                                    analysisReason = analysisReason,
-                                    onAnalysisReasonChange = { analysisReason = it },
-                                    gpsCoordinates = gpsCoordinates,
-                                    petitionText = petitionText ?: "",
-                                    onPetitionChange = { petitionText = it },
-                                    isSummaryExpanded = isSummaryExpanded,
-                                    onSummaryToggle = { isSummaryExpanded = !isSummaryExpanded },
-                                    isPetitionExpanded = isPetitionExpanded,
-                                    onPetitionToggle = { isPetitionExpanded = !isPetitionExpanded },
-                                    onChooseImageClick = { showDialog = true },
-                                    userLatLng = userLatLng,
-                                    onUseCurrentLocationClick = {
-                                        val permission = Manifest.permission.ACCESS_FINE_LOCATION
-                                        val isGranted = ContextCompat.checkSelfPermission(context, permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                                        if (isGranted) {
-                                            fetchRealLocation(context) { lat, lng, address ->
-                                                gpsCoordinates = address
-                                                userLatLng = LatLng(lat, lng)
-                                            }
-                                        } else {
-                                            locationPermissionsLauncher.launch(
-                                                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
-                                            )
-                                        }
-                                    },
-                                    onCopyPetition = {
-                                        petitionText?.let {
-                                            clipboardManager.setText(AnnotatedString(it))
-                                            Toast.makeText(context, "Petition letter copied to clipboard!", Toast.LENGTH_SHORT).show()
-                                        }
-                                    },
-                                    onSubmitClick = {
-                                        isEditingDetails = false
-                                    },
-                                    geminiAnalysisEnabled = geminiAnalysisEnabled,
-                                    petitionEnabled = petitionEnabled,
-                                    availableCategories = availableCategories,
-                                    selectedBitmaps = selectedBitmaps,
-                                    onRemovePhoto = { idx ->
-                                        if (idx in selectedBitmaps.indices) {
-                                            selectedBitmaps.removeAt(idx)
-                                            selectedImageBase64s.removeAt(idx)
-                                            if (selectedImageBase64s.isNotEmpty()) stagedImageBase64 = selectedImageBase64s[0] else stagedImageBase64 = null
-                                        }
-                                    }
-                                )
-                            } else {
-                                StepTwoAiAnalysisContent(
-                                    selectedCategory = selectedCategory,
-                                    severity = severity,
-                                    confidenceScore = confidenceScore,
-                                    analysisReason = analysisReason,
-                                    gpsCoordinates = gpsCoordinates,
-                                    userLatLng = userLatLng,
-                                    isAnalyzing = isAnalyzing,
-                                    onEditDetailsClick = { isEditingDetails = true },
-                                    onGeneratePetitionClick = { currentStep = 3 }
-                                )
-                            }
+                            StepTwoAiAnalysisContent(
+                                selectedCategory = selectedCategory,
+                                onCategoryChange = { selectedCategory = it },
+                                severity = severity,
+                                onSeverityChange = { severity = it },
+                                confidenceScore = confidenceScore,
+                                analysisReason = analysisReason,
+                                onAnalysisReasonChange = { analysisReason = it },
+                                gpsCoordinates = gpsCoordinates,
+                                userLatLng = userLatLng,
+                                isAnalyzing = isAnalyzing,
+                                isEditingDetails = isEditingDetails,
+                                onEditDetailsClick = { isEditingDetails = !isEditingDetails },
+                                onGeneratePetitionClick = { currentStep = 3 },
+                                availableCategories = availableCategories
+                            )
                         }
                         3 -> StepThreePetitionDraftContent(
                             selectedCategory = selectedCategory,
@@ -601,6 +561,7 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
                             gpsCoordinates = gpsCoordinates,
                             petitionText = petitionText ?: "",
                             onPetitionChange = { petitionText = it },
+                            selectedBitmaps = selectedBitmaps,
                             onSubmitClick = {
                                 coroutineScope.launch {
                                     isAnalyzing = true
@@ -739,6 +700,46 @@ fun ReportScreen(onReportSubmitted: () -> Unit) {
                                     if (selectedImageBase64s.isNotEmpty()) stagedImageBase64 = selectedImageBase64s[0] else stagedImageBase64 = null
                                 }
                             }
+                        )
+                    }
+                }
+            }
+        }
+        
+        if (isWaitingForAi) {
+            androidx.compose.ui.window.Dialog(
+                onDismissRequest = {}
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            color = Color(0xFF2563EB),
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text(
+                            text = "🤖 Querying Gemini AI...",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color(0xFF1E293B)
+                        )
+                        Text(
+                            text = "Synthesizing visual analysis and drafting petition letter. Please wait...",
+                            fontSize = 12.sp,
+                            color = Color(0xFF64748B),
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            lineHeight = 16.sp
                         )
                     }
                 }
@@ -1230,77 +1231,153 @@ fun StepTwoScanResultsContent(
                 }
             }
 
-            // Detected Issue Section
-            Text(text = "Detected Issue", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-
+            // Detected Issue Section (Editable Inputs)
+            Text(text = "Hazard Category", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
             Card(
                 modifier = Modifier.fillMaxWidth().offset(y = (-8).dp),
                 colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0))
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB))
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(modifier = Modifier.padding(14.dp)) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        availableCategories.forEach { chip ->
+                            val isSelected = selectedCategory == chip
                             Box(
                                 modifier = Modifier
-                                    .size(36.dp)
-                                    .background(Color(0xFFFEE2E2), shape = RoundedCornerShape(8.dp)),
+                                    .background(
+                                        color = if (isSelected) Color(0xFF1B4FD8) else Color.White,
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (isSelected) Color(0xFF1B4FD8) else Color(0xFFE5E7EB),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { onCategoryChange(chip) }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("⚠️", fontSize = 18.sp)
+                                Text(
+                                    text = chip,
+                                    color = if (isSelected) Color.White else Color(0xFF6B7280),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
                             }
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Text(text = selectedCategory, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-                        }
-                        Text(
-                            text = "$confidenceScore Confidence",
-                            fontSize = 11.sp,
-                            color = Color(0xFF16A34A),
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier
-                                .background(Color(0xFFF0FDF4), shape = RoundedCornerShape(8.dp))
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    // Severity Badge
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Severity Level", fontSize = 13.sp, color = Color.Gray)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Row(
-                            modifier = Modifier
-                                .background(Color(0xFFFEE2E2), shape = RoundedCornerShape(8.dp))
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("🚨", fontSize = 11.sp)
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(text = severity.replace(" Risk", ""), color = Color(0xFFEF4444), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-
-                    Text(
-                        text = "Reason: $analysisReason",
-                        fontSize = 13.sp,
-                        color = Color(0xFF475569)
-                    )
                 }
             }
 
-            // AI Analysis Details Grid
-            Text(text = "AI Analysis Details", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
-            Row(
+            Text(text = "Severity Level", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+            Card(
                 modifier = Modifier.fillMaxWidth().offset(y = (-8).dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB))
             ) {
-                DetailGridCard(icon = "🎯", title = "Issue Type", value = selectedCategory.substringBefore(" on"), modifier = Modifier.weight(1f))
-                DetailGridCard(icon = "📊", title = "Severity", value = severity.replace(" Risk", ""), modifier = Modifier.weight(1f))
-                DetailGridCard(icon = "🛡️", title = "Confidence", value = confidenceScore, modifier = Modifier.weight(1f))
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val severities = listOf(
+                            Triple("Low Risk", "Low", "Minor inconvenience"),
+                            Triple("Medium Risk", "Medium", "Affects traffic"),
+                            Triple("High Risk", "High", "Danger to life")
+                        )
+                        severities.forEach { (optionValue, label, subtext) ->
+                            val isSelected = severity == optionValue || (optionValue.startsWith(severity)) || (severity.startsWith(optionValue.substringBefore(" ")))
+                            val actualSelected = isSelected || severity.contains(label, ignoreCase = true)
+                            val accentColor = when (optionValue) {
+                                "Low Risk" -> Color(0xFF16A34A)
+                                "Medium Risk" -> Color(0xFFD97706)
+                                else -> Color(0xFFDC2626)
+                            }
+                            val cardBg = if (actualSelected) {
+                                when (optionValue) {
+                                    "Low Risk" -> Color(0xFFF0FDF4)
+                                    "Medium Risk" -> Color(0xFFFFFBEB)
+                                    else -> Color(0xFFFEF2F2)
+                                }
+                            } else {
+                                Color.White
+                            }
+                            val cardBorderColor = if (actualSelected) accentColor else Color(0xFFE5E7EB)
+                            val cardBorderWidth = if (actualSelected) 1.5.dp else 1.dp
+                            
+                            Card(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { onSeverityChange(optionValue) },
+                                colors = CardDefaults.cardColors(containerColor = cardBg),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(cardBorderWidth, cardBorderColor),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .width(3.dp)
+                                            .fillMaxHeight()
+                                            .background(accentColor)
+                                    )
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 10.dp, horizontal = 8.dp),
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF111827)
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = subtext,
+                                            fontSize = 9.sp,
+                                            color = Color(0xFF6B7280),
+                                            lineHeight = 11.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text(text = "Hazard Description", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F172A))
+            Card(
+                modifier = Modifier.fillMaxWidth().offset(y = (-8).dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFFE5E7EB))
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    OutlinedTextField(
+                        value = analysisReason,
+                        onValueChange = onAnalysisReasonChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Describe the hazard context...", fontSize = 13.sp) },
+                        shape = RoundedCornerShape(8.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Color(0xFF1B4FD8),
+                            unfocusedBorderColor = Color(0xFFE5E7EB)
+                        ),
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, color = Color(0xFF374151))
+                    )
+                }
             }
 
             // Collapsible AI Summary Card
@@ -1445,23 +1522,23 @@ fun StepTwoScanResultsContent(
 
 
 
-            // Submit Button
+            // Submit/Generate Petition Button
             Button(
                 onClick = onSubmitClick,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15803D)),
-                shape = RoundedCornerShape(12.dp)
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                shape = RoundedCornerShape(8.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Spacer(modifier = Modifier.width(20.dp))
-                    Text("Next: Review & Submit", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White)
-                    Icon(imageVector = Icons.Default.KeyboardArrowRight, contentDescription = "Next")
+                    Text("Generate Petition", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Icon(imageVector = Icons.Default.KeyboardArrowRight, contentDescription = "Next", tint = Color.White, modifier = Modifier.size(16.dp))
                 }
             }
         }
@@ -2489,7 +2566,7 @@ fun StepOneUploadAndScanContent(
                         onClick = onTakePhotoClick,
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp),
+                            .height(58.dp),
                         border = BorderStroke(1.dp, Color(0xFF2563EB)),
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2563EB))
@@ -2505,14 +2582,14 @@ fun StepOneUploadAndScanContent(
                         onClick = onChooseImageClick,
                         modifier = Modifier
                             .weight(1f)
-                            .height(48.dp),
+                            .height(58.dp),
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             GalleryIcon(color = Color.White, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Choose from Gallery", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Text("Choose from Gallery",color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -2545,6 +2622,7 @@ fun StepOneUploadAndScanContent(
                 )
                 
                 stepsList.forEachIndexed { index, (label, status, successText) ->
+                    val isCompleted = status != "Pending" && status != "Processing..."
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2553,8 +2631,8 @@ fun StepOneUploadAndScanContent(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            when (status) {
-                                "Passed", successText -> {
+                            when {
+                                isCompleted -> {
                                     Icon(
                                         imageVector = Icons.Default.CheckCircle,
                                         contentDescription = "Passed",
@@ -2562,7 +2640,7 @@ fun StepOneUploadAndScanContent(
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
-                                "Processing..." -> {
+                                status == "Processing..." -> {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(18.dp),
                                         color = Color(0xFF2563EB),
@@ -2590,9 +2668,9 @@ fun StepOneUploadAndScanContent(
                             text = if (status == "Passed") successText else status,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = when (status) {
-                                "Passed", successText -> Color(0xFF16A34A)
-                                "Processing..." -> Color(0xFF2563EB)
+                            color = when {
+                                isCompleted -> Color(0xFF16A34A)
+                                status == "Processing..." -> Color(0xFF2563EB)
                                 else -> Color(0xFF9CA3AF)
                             }
                         )
@@ -2696,14 +2774,19 @@ fun StepTwoAiAnalysisSkeleton() {
 @Composable
 fun StepTwoAiAnalysisContent(
     selectedCategory: String,
+    onCategoryChange: (String) -> Unit,
     severity: String,
+    onSeverityChange: (String) -> Unit,
     confidenceScore: String,
     analysisReason: String,
+    onAnalysisReasonChange: (String) -> Unit,
     gpsCoordinates: String,
     userLatLng: LatLng?,
     isAnalyzing: Boolean,
+    isEditingDetails: Boolean,
     onEditDetailsClick: () -> Unit,
-    onGeneratePetitionClick: () -> Unit
+    onGeneratePetitionClick: () -> Unit,
+    availableCategories: List<String> = listOf("Pothole", "Waterlogging", "Broken Light", "Road Collapse", "Other")
 ) {
     if (isAnalyzing) {
         StepTwoAiAnalysisSkeleton()
@@ -2869,53 +2952,210 @@ fun StepTwoAiAnalysisContent(
                     )
                     Spacer(modifier = Modifier.height(14.dp))
                     
-                    val detailsList = listOf(
-                        Pair("Hazard Type", selectedCategory),
-                        Pair("Severity", severity.replace(" Risk", "")),
-                        Pair("Category", "Road Damage"),
-                        Pair("Dimensions", "~2ft × 1.5ft"),
-                        Pair("Risk Level", if (severity == "High Risk" || severity == "High") "Danger to life" else if (severity == "Medium Risk" || severity == "Medium") "Affects traffic" else "Minor inconvenience"),
-                        Pair("Dept. to Alert", "PWD / NHAI")
-                    )
-                    
-                    detailsList.forEachIndexed { index, (label, valStr) ->
+                    if (isEditingDetails) {
+                        // Editable Category Selection
+                        Text(text = "Hazard Category", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text(
-                                text = label,
-                                fontSize = 13.sp,
-                                color = Color(0xFF64748B)
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = valStr,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF1E293B)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
+                            availableCategories.forEach { chip ->
+                                val isSelected = selectedCategory == chip
                                 Box(
                                     modifier = Modifier
-                                        .background(Color(0xFFEEF2FF), shape = RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                        .background(
+                                            color = if (isSelected) Color(0xFF1B4FD8) else Color.White,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .border(
+                                            width = 1.dp,
+                                            color = if (isSelected) Color(0xFF1B4FD8) else Color(0xFFE5E7EB),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { onCategoryChange(chip) }
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "AI",
-                                        color = Color(0xFF4F46E5),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
+                                        text = chip,
+                                        color = if (isSelected) Color.White else Color(0xFF6B7280),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                             }
                         }
-                        if (index < detailsList.size - 1) {
-                            Divider(color = Color(0xFFF3F4F6))
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // Editable Severity Selection
+                        Text(text = "Severity Level", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val severities = listOf(
+                                Triple("Low Risk", "Low", "Minor"),
+                                Triple("Medium Risk", "Medium", "Medium"),
+                                Triple("High Risk", "High", "Critical")
+                            )
+                            severities.forEach { (optionValue, label, subtext) ->
+                                val isSelected = severity == optionValue || (optionValue.startsWith(severity)) || (severity.startsWith(optionValue.substringBefore(" ")))
+                                val actualSelected = isSelected || severity.contains(label, ignoreCase = true)
+                                val accentColor = when (optionValue) {
+                                    "Low Risk" -> Color(0xFF16A34A)
+                                    "Medium Risk" -> Color(0xFFD97706)
+                                    else -> Color(0xFFDC2626)
+                                }
+                                val cardBg = if (actualSelected) {
+                                    when (optionValue) {
+                                        "Low Risk" -> Color(0xFFF0FDF4)
+                                        "Medium Risk" -> Color(0xFFFFFBEB)
+                                        else -> Color(0xFFFEF2F2)
+                                    }
+                                } else {
+                                    Color.White
+                                }
+                                val cardBorderColor = if (actualSelected) accentColor else Color(0xFFE5E7EB)
+                                val cardBorderWidth = if (actualSelected) 1.5.dp else 1.dp
+                                
+                                Card(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { onSeverityChange(optionValue) },
+                                    colors = CardDefaults.cardColors(containerColor = cardBg),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(cardBorderWidth, cardBorderColor),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(3.dp)
+                                                .fillMaxHeight()
+                                                .background(accentColor)
+                                        )
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 8.dp, horizontal = 6.dp),
+                                            verticalArrangement = Arrangement.Center,
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF111827)
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = subtext,
+                                                fontSize = 9.sp,
+                                                color = Color(0xFF6B7280)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
+                    } else {
+                        // Render standard read-only items
+                        val detailsList = listOf(
+                            Pair("Hazard Type", selectedCategory),
+                            Pair("Severity", severity.replace(" Risk", "")),
+                            Pair("Category", "Road Damage"),
+                            Pair("Dimensions", "~2ft × 1.5ft"),
+                            Pair("Risk Level", if (severity == "High Risk" || severity == "High") "Danger to life" else if (severity == "Medium Risk" || severity == "Medium") "Affects traffic" else "Minor inconvenience"),
+                            Pair("Dept. to Alert", "PWD / NHAI")
+                        )
+                        
+                        detailsList.forEachIndexed { index, (label, valStr) ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = label,
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = valStr,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF1E293B)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .background(Color(0xFFEEF2FF), shape = RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "AI",
+                                            color = Color(0xFF4F46E5),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                            if (index < detailsList.size - 1) {
+                                Divider(color = Color(0xFFF3F4F6))
+                            }
+                        }
+                    }
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "HAZARD DESCRIPTION",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6B7280),
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    if (isEditingDetails) {
+                        OutlinedTextField(
+                            value = analysisReason,
+                            onValueChange = onAnalysisReasonChange,
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("Describe the hazard context...", fontSize = 13.sp) },
+                            shape = RoundedCornerShape(8.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color(0xFF1B4FD8),
+                                unfocusedBorderColor = Color(0xFFE5E7EB)
+                            ),
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp, color = Color(0xFF374151))
+                        )
+                    } else {
+                        Text(
+                            text = analysisReason.ifBlank { "No hazard description provided." },
+                            fontSize = 13.sp,
+                            color = Color(0xFF374151),
+                            lineHeight = 18.sp
+                        )
                     }
                 }
             }
@@ -3092,9 +3332,17 @@ fun StepTwoAiAnalysisContent(
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2563EB))
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(imageVector = Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(16.dp))
+                        Icon(
+                            imageVector = if (isEditingDetails) Icons.Default.Check else Icons.Default.Edit,
+                            contentDescription = if (isEditingDetails) "Save" else "Edit",
+                            modifier = Modifier.size(16.dp)
+                        )
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Edit Details", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (isEditingDetails) "Save Details" else "Edit Details",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
                 
@@ -3107,7 +3355,7 @@ fun StepTwoAiAnalysisContent(
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB))
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Generate Petition", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("Generate Petition",color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         Spacer(modifier = Modifier.width(6.dp))
                         Icon(imageVector = Icons.Default.ArrowForward, contentDescription = "Next", modifier = Modifier.size(16.dp))
                     }
@@ -3124,9 +3372,35 @@ fun StepThreePetitionDraftContent(
     gpsCoordinates: String,
     petitionText: String,
     onPetitionChange: (String) -> Unit,
+    selectedBitmaps: List<Bitmap>,
     onSubmitClick: () -> Unit,
     onShareClick: () -> Unit
 ) {
+    val cleanSeverity = severity.replace(" Risk", "").uppercase()
+    val severityColor = when (cleanSeverity) {
+        "HIGH", "CRITICAL" -> Color(0xFFE11D48)
+        "MEDIUM" -> Color(0xFFD97706)
+        else -> Color(0xFF16A34A)
+    }
+    val severityBg = when (cleanSeverity) {
+        "HIGH", "CRITICAL" -> Color(0xFFFFF1F2)
+        "MEDIUM" -> Color(0xFFFFFBEB)
+        else -> Color(0xFFF0FDF4)
+    }
+    
+    val deptName = when (selectedCategory.lowercase()) {
+        "pothole", "road collapse", "road damage" -> "PWD"
+        "broken streetlight", "broken light" -> "DISCOM"
+        "waterlogging", "open drain", "open manhole" -> "PHED"
+        else -> "Municipal"
+    }
+    
+    val timeline = when (cleanSeverity) {
+        "HIGH", "CRITICAL" -> "3 Days"
+        "MEDIUM" -> "7 Days"
+        else -> "14 Days"
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -3194,18 +3468,28 @@ fun StepThreePetitionDraftContent(
                     ) {
                         Text("📍", fontSize = 12.sp)
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Mahaveer Nagar", fontSize = 11.sp, color = Color(0xFF334155), fontWeight = FontWeight.Medium)
+                        Text(
+                            text = if (gpsCoordinates.contains(",")) gpsCoordinates.split(",").firstOrNull() ?: "Kota" else gpsCoordinates,
+                            fontSize = 11.sp,
+                            color = Color(0xFF334155),
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                     
                     Row(
                         modifier = Modifier
-                            .background(Color(0xFFFFF1F2), shape = RoundedCornerShape(6.dp))
+                            .background(severityBg, shape = RoundedCornerShape(6.dp))
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("⚠️", fontSize = 12.sp)
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("High Priority", fontSize = 11.sp, color = Color(0xFFE11D48), fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "$cleanSeverity Priority",
+                            fontSize = 11.sp,
+                            color = severityColor,
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                     
                     Row(
@@ -3216,7 +3500,12 @@ fun StepThreePetitionDraftContent(
                     ) {
                         Text("🏛️", fontSize = 12.sp)
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("PWD Dept", fontSize = 11.sp, color = Color(0xFF334155), fontWeight = FontWeight.Medium)
+                        Text(
+                            text = "$deptName Dept",
+                            fontSize = 11.sp,
+                            color = Color(0xFF334155),
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             }
@@ -3265,7 +3554,7 @@ fun StepThreePetitionDraftContent(
                 )
                 
                 Spacer(modifier = Modifier.height(14.dp))
-                Divider(color = Color(0xFFF3F4F6))
+                HorizontalDivider(color = Color(0xFFF3F4F6))
                 Spacer(modifier = Modifier.height(14.dp))
                 
                 Row(
@@ -3278,7 +3567,7 @@ fun StepThreePetitionDraftContent(
                     ) {
                         Text("Priority", fontSize = 11.sp, color = Color(0xFF64748B))
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("HIGH", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                        Text(cleanSeverity, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = severityColor)
                     }
                     
                     Box(modifier = Modifier.width(1.dp).height(30.dp).background(Color(0xFFE2E8F0)))
@@ -3289,7 +3578,7 @@ fun StepThreePetitionDraftContent(
                     ) {
                         Text("Dept", fontSize = 11.sp, color = Color(0xFF64748B))
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("PWD", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
+                        Text(deptName, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB))
                     }
                     
                     Box(modifier = Modifier.width(1.dp).height(30.dp).background(Color(0xFFE2E8F0)))
@@ -3300,34 +3589,50 @@ fun StepThreePetitionDraftContent(
                     ) {
                         Text("Timeline", fontSize = 11.sp, color = Color(0xFF64748B))
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text("7 Days", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
+                        Text(timeline, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
                     }
                 }
             }
         }
         
-        Row(
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
         ) {
-            Card(
-                modifier = Modifier.weight(1f),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "ATTACHED EVIDENCE",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF6B7280),
-                        letterSpacing = 0.5.sp
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Text(
+                    text = "ATTACHED EVIDENCE",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF6B7280),
+                    letterSpacing = 0.5.sp
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    if (selectedBitmaps.isNotEmpty()) {
+                        selectedBitmaps.forEach { bitmap ->
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(6.dp))
+                            ) {
+                                Image(
+                                    bitmap = bitmap.asImageBitmap(),
+                                    contentDescription = "Evidence Preview",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                        }
+                    } else {
                         Box(
                             modifier = Modifier
                                 .size(48.dp)
@@ -3336,103 +3641,20 @@ fun StepThreePetitionDraftContent(
                         ) {
                             Image(
                                 painter = androidx.compose.ui.res.painterResource(id = com.nagarrakshak.R.drawable.placeholder_hazard),
-                                contentDescription = "Evidence Preview",
+                                contentDescription = "Evidence Preview Placeholder",
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
                             )
-                            
-                            Box(
-                                modifier = Modifier
-                                    .padding(8.dp)
-                                    .fillMaxSize()
-                                    .border(1.5.dp, Color.Red, RoundedCornerShape(2.dp))
-                            )
-                        }
-                        
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .border(BorderStroke(1.dp, Color(0xFFCBD5E1)), RoundedCornerShape(6.dp))
-                                .background(Color.White),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                CameraIcon(color = Color.Gray, modifier = Modifier.size(16.dp))
-                                Text("Add", fontSize = 8.sp, color = Color.Gray)
-                            }
                         }
                     }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "AI scan report will be auto-attached as PDF",
-                        fontSize = 9.sp,
-                        color = Color(0xFF64748B),
-                        lineHeight = 12.sp
-                    )
                 }
-            }
-            
-            Card(
-                modifier = Modifier.weight(1f),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "COMMUNITY SUPPORT",
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF6B7280),
-                        letterSpacing = 0.5.sp
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "12 / 50 signatures needed",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1E293B)
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp))
-                            .background(Color(0xFFE2E8F0))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(12f / 50f)
-                                .background(Color(0xFF2563EB))
-                        )
-                    }
-                    
-                    Spacer(modifier = Modifier.height(10.dp))
-                    
-                    OutlinedButton(
-                        onClick = { },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(32.dp),
-                        contentPadding = PaddingValues(0.dp),
-                        border = BorderStroke(1.dp, Color(0xFF2563EB)),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF2563EB)),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Text("Sign This Petition", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "12 citizens have signed",
-                        fontSize = 9.sp,
-                        color = Color(0xFF64748B)
-                    )
-                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Text(
+                    text = "AI scan report will be auto-attached as PDF",
+                    fontSize = 9.sp,
+                    color = Color(0xFF64748B),
+                    lineHeight = 12.sp
+                )
             }
         }
         
@@ -3483,4 +3705,23 @@ fun StepThreePetitionDraftContent(
         }
     }
 }
+
+fun getResizedBitmap(image: Bitmap, maxSize: Int): Bitmap {
+    val width = image.width
+    val height = image.height
+    if (width <= maxSize && height <= maxSize) return image
+    
+    val bitmapRatio = width.toFloat() / height.toFloat()
+    val targetWidth: Int
+    val targetHeight: Int
+    if (bitmapRatio > 1) {
+        targetWidth = maxSize
+        targetHeight = (maxSize / bitmapRatio).toInt()
+    } else {
+        targetHeight = maxSize
+        targetWidth = (maxSize * bitmapRatio).toInt()
+    }
+    return Bitmap.createScaledBitmap(image, targetWidth, targetHeight, true)
+}
+
 

@@ -870,7 +870,9 @@ fun DetailScreen(
             // PETITION STATUS CARD
             // ════════════════════════════════
             if (petitionEnabled) {
-                val signatureCount = remember(report.id) { 20 + (kotlin.math.abs(report.id.hashCode()) % 30) }
+                var hasSigned by remember(report.id) { mutableStateOf(false) }
+                val baseCount = remember(report.id) { 20 + (kotlin.math.abs(report.id.hashCode()) % 30) }
+                val signatureCount = baseCount + (if (hasSigned) 1 else 0)
                 val signatureGoal = 50
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -908,11 +910,26 @@ fun DetailScreen(
                         Text("${signatureGoal - signatureCount} more signatures to trigger municipal action", fontSize = 12.sp, color = Color(0xFF6B7280))
 
                         Spacer(Modifier.height(12.dp))
-                        Button(
-                            onClick = { Toast.makeText(context, "Petition signed!", Toast.LENGTH_SHORT).show() },
-                            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B4FD8))
-                        ) { Text("✍ Sign Petition", color = Color.White, fontWeight = FontWeight.SemiBold) }
+                        if (hasSigned) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(40.dp)
+                                    .background(Color(0xFFDCFCE7), RoundedCornerShape(8.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("Signed ✓", color = Color(0xFF16A34A), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                        } else {
+                            Button(
+                                onClick = {
+                                    hasSigned = true
+                                    Toast.makeText(context, "Petition signed successfully!", Toast.LENGTH_SHORT).show()
+                                },
+                                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B4FD8))
+                            ) { Text("✍ Sign Petition", color = Color.White, fontWeight = FontWeight.SemiBold) }
+                        }
                         Spacer(Modifier.height(6.dp))
                         OutlinedButton(
                             onClick = { }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp),

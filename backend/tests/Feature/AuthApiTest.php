@@ -278,4 +278,63 @@ class AuthApiTest extends TestCase
             'description' => 'A large deep pothole on the main lane',
         ]);
     }
+
+    /**
+     * Test duplicate hazard reports within 20 meters are merged.
+     */
+    public function test_store_hazard_merges_duplicates_within_20_meters(): void
+    {
+        $user = User::create([
+            'name' => 'Mihir Aditya',
+            'email' => 'mihir.aditya@gmail.com',
+            'password' => bcrypt('password'),
+            'role' => 'Citizen',
+        ]);
+        $user->remember_token = 'myvalidtoken123';
+        $user->save();
+
+        // 1. Submit first hazard
+        $response1 = $this->withHeaders([
+            'Authorization' => 'Bearer myvalidtoken123',
+        ])->postJson('/api/hazards', [
+            'category' => 'Pothole',
+            'location_name' => 'First Location',
+            'latitude' => 25.18254,
+            'longitude' => 75.82736,
+            'severity' => 'High Risk',
+            'description' => 'Original pothole reported',
+            'image_path' => 'hazards/original.jpg'
+        ]);
+
+        $response1->assertStatus(201);
+        $firstId = $response1->json('data.id');
+
+        // 2. Submit second hazard (11 meters away, same category)
+        // 0.0001 latitude difference is roughly 11.1 meters
+        $response2 = $this->withHeaders([
+            'Authorization' => 'Bearer myvalidtoken123',
+        ])->postJson('/api/hazards', [
+            'category' => 'Pothole',
+            'location_name' => 'Nearby Location',
+            'latitude' => 25.18264,
+            'longitude' => 75.82736,
+            'severity' => 'Medium Risk',
+            'description' => 'Pothole reported again by another source',
+            'image_path' => 'hazards/evidence.jpg'
+        ]);
+
+        $response2->assertStatus(200)
+                 ->assertJson([
+                     'success' => true,
+                     'merged' => true,
+                     'data' => [
+                         'id' => $firstId,
+                         'verification_count' => 1,
+                         'image_path' => 'hazards/original.jpg,hazards/evidence.jpg'
+                     ]
+                 ]);
+
+        // Assert database only has 1 hazard record
+        $this->assertEquals(1, Hazard::count());
+    }
 }
