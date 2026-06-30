@@ -43,7 +43,8 @@ import com.nagarrakshak.data.models.VerificationStatus
 @Composable
 fun AlertsScreen(
     onNavigateToDetail: (String) -> Unit,
-    onNavigateToNotifications: () -> Unit
+    onNavigateToNotifications: () -> Unit,
+    onNavigateToMap: (Double, Double, String) -> Unit
 ) {
     val context = LocalContext.current
     var alertsList by remember { mutableStateOf<List<HazardReport>>(emptyList()) }
@@ -287,7 +288,11 @@ fun AlertsScreen(
             items(count = filteredList.size, key = { index -> filteredList[index].id }) { index ->
                 val alert = filteredList[index]
                 Box(Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
-                    AlertCardRedesigned(alert = alert, onClick = { onNavigateToDetail(alert.id) })
+                    AlertCardRedesigned(
+                        alert = alert,
+                        onClick = { onNavigateToDetail(alert.id) },
+                        onNavigateClick = { onNavigateToMap(alert.latitude, alert.longitude, alert.category) }
+                    )
                 }
             }
         }
@@ -403,7 +408,7 @@ fun SeverityTab(text: String, count: Int?, isSelected: Boolean, color: Color?, o
 // Redesigned Alert Card
 // ====================================================
 @Composable
-fun AlertCardRedesigned(alert: HazardReport, onClick: () -> Unit) {
+fun AlertCardRedesigned(alert: HazardReport, onClick: () -> Unit, onNavigateClick: () -> Unit = {}) {
     val severityColor = when (alert.severity) { Severity.HIGH -> Color(0xFFDC2626); Severity.MEDIUM -> Color(0xFFD97706); Severity.LOW -> Color(0xFF16A34A) }
     val severityBg = when (alert.severity) { Severity.HIGH -> Color(0xFFFEE2E2); Severity.MEDIUM -> Color(0xFFFEF3C7); Severity.LOW -> Color(0xFFDCFCE7) }
     val severityLabel = when (alert.severity) { Severity.HIGH -> "High Risk"; Severity.MEDIUM -> "Medium Risk"; Severity.LOW -> "Low Risk" }
@@ -530,7 +535,7 @@ fun AlertCardRedesigned(alert: HazardReport, onClick: () -> Unit) {
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
                             .background(Color(0xFFEFF6FF))
-                            .clickable { }
+                            .clickable { onNavigateClick() }
                             .padding(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {

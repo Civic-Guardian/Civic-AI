@@ -26,6 +26,12 @@ Route::get('/', function () {
     return view('welcome');
 });
 
+// Vibe2Ship Hackathon Showcase Page
+Route::get('/vibe2ship', function () {
+    return view('hackathon');
+});
+Route::redirect('/hackathon', '/vibe2ship');
+
 // Admin Panel RoutesProtected by Session Authentication
 Route::prefix('admin')->name('admin.')->middleware('auth')->group(function () {
     // Dashboard Core Overview

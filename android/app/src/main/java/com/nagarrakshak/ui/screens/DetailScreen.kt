@@ -48,7 +48,8 @@ data class CommentItem(
 @Composable
 fun DetailScreen(
     hazardId: String,
-    onBackClicked: () -> Unit
+    onBackClicked: () -> Unit,
+    onNavigateToMap: (Double, Double, String) -> Unit
 ) {
     val context = LocalContext.current
     val authManager = remember { com.nagarrakshak.data.AuthManager(context) }
@@ -166,20 +167,7 @@ fun DetailScreen(
     }
 
     val openNavigationInMaps: () -> Unit = {
-        try {
-            val gmmIntentUri = android.net.Uri.parse("google.navigation:q=${report.latitude},${report.longitude}")
-            val mapIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, gmmIntentUri)
-            mapIntent.setPackage("com.google.android.apps.maps")
-            if (mapIntent.resolveActivity(context.packageManager) != null) {
-                context.startActivity(mapIntent)
-            } else {
-                val browserIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${report.latitude},${report.longitude}"))
-                context.startActivity(browserIntent)
-            }
-        } catch (e: Exception) {
-            val browserIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://www.google.com/maps/dir/?api=1&destination=${report.latitude},${report.longitude}"))
-            context.startActivity(browserIntent)
-        }
+        onNavigateToMap(report.latitude, report.longitude, report.category)
     }
 
     val onShareReport: () -> Unit = {

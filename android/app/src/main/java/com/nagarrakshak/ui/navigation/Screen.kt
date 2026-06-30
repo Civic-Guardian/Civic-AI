@@ -4,7 +4,9 @@ sealed class Screen(val route: String, val title: String) {
     object Splash : Screen("splash", "Splash")
     object Auth : Screen("auth", "Auth")
     object Home : Screen("home", "Home")
-    object Map : Screen("map", "Safety Map")
+    object Map : Screen("map?lat={lat}&lng={lng}&name={name}", "Safety Map") {
+        fun createRoute(lat: Double, lng: Double, name: String) = "map?lat=$lat&lng=$lng&name=$name"
+    }
     object Report : Screen("report", "Report Hazard")
     object Alerts : Screen("alerts", "Alerts")
     object Leaderboard : Screen("leaderboard", "Leaderboard")

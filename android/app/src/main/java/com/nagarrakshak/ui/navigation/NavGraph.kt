@@ -65,9 +65,22 @@ fun NagarRakshakNavGraph(
                 onNavigateToNotifications = { navController.navigate(Screen.Notifications.route) }
             )
         }
-        composable(Screen.Map.route) {
+        composable(
+            route = Screen.Map.route,
+            arguments = listOf(
+                navArgument("lat") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("lng") { type = NavType.StringType; nullable = true; defaultValue = null },
+                navArgument("name") { type = NavType.StringType; nullable = true; defaultValue = null }
+            )
+        ) { backStackEntry ->
+            val lat = backStackEntry.arguments?.getString("lat")?.toDoubleOrNull()
+            val lng = backStackEntry.arguments?.getString("lng")?.toDoubleOrNull()
+            val name = backStackEntry.arguments?.getString("name")
             MapScreen(
-                onNavigateToDetail = { hazardId -> navController.navigate(Screen.HazardDetail.createRoute(hazardId)) }
+                onNavigateToDetail = { hazardId -> navController.navigate(Screen.HazardDetail.createRoute(hazardId)) },
+                initialLat = lat,
+                initialLng = lng,
+                initialName = name
             )
         }
         composable(Screen.Report.route) {
@@ -78,7 +91,10 @@ fun NagarRakshakNavGraph(
         composable(Screen.Alerts.route) {
             AlertsScreen(
                 onNavigateToDetail = { hazardId -> navController.navigate(Screen.HazardDetail.createRoute(hazardId)) },
-                onNavigateToNotifications = { navController.navigate(Screen.Notifications.route) }
+                onNavigateToNotifications = { navController.navigate(Screen.Notifications.route) },
+                onNavigateToMap = { lat, lng, name ->
+                    navController.navigate(Screen.Map.createRoute(lat, lng, name))
+                }
             )
         }
         composable(Screen.Leaderboard.route) {
@@ -211,7 +227,10 @@ fun NagarRakshakNavGraph(
             val hazardId = backStackEntry.arguments?.getString("hazardId") ?: ""
             DetailScreen(
                 hazardId = hazardId,
-                onBackClicked = { navController.popBackStack() }
+                onBackClicked = { navController.popBackStack() },
+                onNavigateToMap = { lat, lng, name ->
+                    navController.navigate(Screen.Map.createRoute(lat, lng, name))
+                }
             )
         }
     }

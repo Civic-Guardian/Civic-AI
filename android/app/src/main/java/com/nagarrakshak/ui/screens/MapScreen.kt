@@ -129,15 +129,24 @@ fun GoogleMapView(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MapScreen(onNavigateToDetail: (String) -> Unit) {
+fun MapScreen(
+    onNavigateToDetail: (String) -> Unit,
+    initialLat: Double? = null,
+    initialLng: Double? = null,
+    initialName: String? = null
+) {
     val context = LocalContext.current
     var userLatLng by remember { mutableStateOf<LatLng?>(null) }
     
+    val initialDest = remember(initialLat, initialLng) {
+        if (initialLat != null && initialLng != null) LatLng(initialLat, initialLng) else null
+    }
+
     // UI controls state
     var isTrafficEnabled by remember { mutableStateOf(false) }
     var isSatelliteEnabled by remember { mutableStateOf(false) }
-    var isNavigationMode by remember { mutableStateOf(false) }
-    var isRouteActive by remember { mutableStateOf(false) }
+    var isNavigationMode by remember { mutableStateOf(initialDest != null) }
+    var isRouteActive by remember { mutableStateOf(initialDest != null) }
     var isAlertsEnabled by remember { mutableStateOf(true) }
     var isVoiceAlertsEnabled by remember { mutableStateOf(true) }
     var isVibrationEnabled by remember { mutableStateOf(true) }
@@ -148,8 +157,8 @@ fun MapScreen(onNavigateToDetail: (String) -> Unit) {
     // Origin & Destination selection state
     var originLatLng by remember { mutableStateOf(LatLng(25.182, 75.828)) } // Default: Talwandi, Kota
     var originName by remember { mutableStateOf("Talwandi, Kota") }
-    var destinationLatLng by remember { mutableStateOf(LatLng(25.166, 75.858)) } // Default: Indraprastha Ind. Area
-    var destinationName by remember { mutableStateOf("Indraprastha Ind. Area") }
+    var destinationLatLng by remember { mutableStateOf(initialDest ?: LatLng(25.166, 75.858)) } // Default: Indraprastha Ind. Area
+    var destinationName by remember { mutableStateOf(initialName ?: "Indraprastha Ind. Area") }
 
     var showOriginDialog by remember { mutableStateOf(false) }
     var showDestinationDialog by remember { mutableStateOf(false) }
