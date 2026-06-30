@@ -200,7 +200,7 @@
                             <p class="text-secondary small mb-3">Download the citizen mobile app APK with active navigation and AI hazard scanner.</p>
                         </div>
                         <div>
-                            <a href="https://github.com/Civic-Guardian/Civic-AI/releases/download/v1.0.0-demo/nagarrakshak.apk" class="hackathon-btn btn-glow-emerald" target="_blank">
+                            <a href="https://storage.googleapis.com/nagarakshak/app-release.apk" class="hackathon-btn btn-glow-emerald" target="_blank">
                                 <i class="fa-solid fa-download"></i> Download APK
                             </a>
                             <div class="link-desc text-center">NagarRakshak Android Binary</div>
@@ -217,7 +217,7 @@
                             <p class="text-secondary small mb-3">Access the comprehensive research report on civic AI matching & hazard analytics.</p>
                         </div>
                         <div>
-                            <a href="https://docs.google.com/document/d/1vibe2ship-hackathon-research-report/edit?usp=sharing" class="hackathon-btn btn-outline-custom" target="_blank">
+                            <a href="https://docs.google.com/document/d/1d9bq8G9f9oFZsOsmHpmxiyfV0zm4pFAw3L6hiGbbrms/edit?tab=t.0" class="hackathon-btn btn-outline-custom" target="_blank">
                                 <i class="fa-solid fa-file-lines"></i> View Report
                             </a>
                             <div class="link-desc text-center">Google Docs Research Report</div>
