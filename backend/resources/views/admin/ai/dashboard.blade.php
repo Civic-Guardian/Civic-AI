@@ -10,16 +10,18 @@
             <p class="text-muted">High-level statistics and performance charts for your Gemini AI integrations.</p>
         </div>
         <div class="col-md-6 text-md-end">
-            <form action="{{ route('admin.ai.dashboard') }}" method="GET" class="d-flex justify-content-md-end gap-2 align-items-center">
+            <form action="{{ route('admin.ai.dashboard') }}" method="GET" class="d-flex flex-wrap justify-content-start justify-content-md-end gap-2 align-items-center">
                 <select name="category" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
                     <option value="">All Categories</option>
                     @foreach($categories as $category)
                         <option value="{{ $category->name }}" {{ request('category') == $category->name ? 'selected' : '' }}>{{ $category->name }}</option>
                     @endforeach
                 </select>
-                <input type="date" name="date_from" class="form-control form-control-sm" style="width: auto;" value="{{ request('date_from') }}" onchange="this.form.submit()">
-                <span class="text-muted small">to</span>
-                <input type="date" name="date_to" class="form-control form-control-sm" style="width: auto;" value="{{ request('date_to') }}" onchange="this.form.submit()">
+                <div class="d-flex align-items-center gap-1">
+                    <input type="date" name="date_from" class="form-control form-control-sm" style="width: auto;" value="{{ request('date_from') }}" onchange="this.form.submit()">
+                    <span class="text-muted small">to</span>
+                    <input type="date" name="date_to" class="form-control form-control-sm" style="width: auto;" value="{{ request('date_to') }}" onchange="this.form.submit()">
+                </div>
                 <a href="{{ route('admin.ai.dashboard') }}" class="btn btn-sm btn-outline-secondary" title="Clear Filters"><i class="fa-solid fa-xmark"></i></a>
             </form>
         </div>

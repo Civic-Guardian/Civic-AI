@@ -155,6 +155,28 @@
             color: var(--hackathon-slate);
             margin-top: 0.5rem;
         }
+
+        @media (max-width: 768px) {
+            .showcase-card {
+                padding: 2rem 1.25rem !important;
+                border-radius: 16px !important;
+            }
+            .display-5 {
+                font-size: 2.25rem !important;
+            }
+            .fs-5 {
+                font-size: 1rem !important;
+            }
+            .mb-5 {
+                margin-bottom: 2rem !important;
+            }
+            .main-container {
+                padding: 1rem 0.75rem !important;
+            }
+            .hackathon-btn {
+                padding: 0.75rem 1.25rem !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -227,7 +249,7 @@
             </div>
 
             <!-- Footer Details -->
-            <div class="mt-5 border-top border-secondary border-opacity-10 pt-4 d-flex justify-content-between align-items-center text-secondary small">
+            <div class="mt-5 border-top border-secondary border-opacity-10 pt-4 d-flex flex-column flex-sm-row justify-content-between align-items-center gap-2 text-secondary small">
                 <div>
                     <i class="fa-solid fa-code-merge me-1"></i> Version 1.2.0-stable
                 </div>

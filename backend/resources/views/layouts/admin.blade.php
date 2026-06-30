@@ -365,6 +365,26 @@
             background-color: #334155 !important;
             color: #38BDF8 !important;
         }
+
+        /* --- Responsive Layout Adjustments --- */
+        @media (max-width: 991.98px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
+            }
+            .sidebar.sidebar-active {
+                transform: translateX(0);
+            }
+            .main-content {
+                margin-left: 0 !important;
+                padding: 1.25rem 1rem !important;
+            }
+            .navbar-custom {
+                margin-left: 0 !important;
+                padding: 0.85rem 1rem !important;
+            }
+        }
     </style>
     <!-- Alpine.js -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -474,6 +494,9 @@
         <div class="container-fluid justify-content-between">
             <!-- Search bar -->
             <div class="d-flex align-items-center">
+                <button class="btn btn-light border d-lg-none me-2" id="sidebarToggleBtn" type="button" style="width: 40px; height: 40px;">
+                    <i class="fa-solid fa-bars"></i>
+                </button>
                 <form action="{{ route('admin.cases.index') }}" method="GET" class="d-none d-md-flex">
                     <div class="input-group input-group-sm" style="width: 280px;">
                         <span class="input-group-text bg-light border-0 ps-3 rounded-start-pill"><i class="fa-solid fa-magnifying-glass text-muted"></i></span>
@@ -572,5 +595,23 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     
     @yield('scripts')
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const toggleBtn = document.getElementById('sidebarToggleBtn');
+            const sidebar = document.querySelector('.sidebar');
+            if (toggleBtn && sidebar) {
+                toggleBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    sidebar.classList.toggle('sidebar-active');
+                });
+                document.addEventListener('click', function(e) {
+                    if (sidebar.classList.contains('sidebar-active') && !sidebar.contains(e.target) && e.target !== toggleBtn) {
+                        sidebar.classList.remove('sidebar-active');
+                    }
+                });
+            }
+        });
+    </script>
 </body>
 </html>

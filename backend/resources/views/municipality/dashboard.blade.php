@@ -5,7 +5,7 @@
 @section('content')
 <div class="container">
     <!-- Welcome section -->
-    <div class="d-flex align-items-center justify-content-between mb-4">
+    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 mb-4">
         <div>
             <h3 class="fw-bold text-dark mb-1">Department Dashboard</h3>
             <p class="text-secondary mb-0">Welcome back, Municipal Authority Officer. Manage road notices, resolve potholes, and post official reports.</p>

@@ -13,9 +13,9 @@
 
     <!-- AI Logs Table -->
     <div class="card card-custom p-4">
-        <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex flex-column flex-lg-row justify-content-between align-items-start align-items-lg-center gap-3 mb-4">
             <h5 class="fw-bold m-0"><i class="fa-solid fa-list text-green"></i> Processing History</h5>
-            <form action="{{ route('admin.ai.logs') }}" method="GET" class="d-flex gap-2 align-items-center">
+            <form action="{{ route('admin.ai.logs') }}" method="GET" class="d-flex flex-wrap gap-2 align-items-center">
                 <select name="status" class="form-select form-select-sm" style="width: auto;" onchange="this.form.submit()">
                     <option value="">All Statuses</option>
                     <option value="Success" {{ request('status') === 'Success' ? 'selected' : '' }}>Success</option>
@@ -27,9 +27,11 @@
                         <option value="{{ $category->name }}" {{ request('category') == $category->name ? 'selected' : '' }}>{{ $category->name }}</option>
                     @endforeach
                 </select>
-                <input type="date" name="date_from" class="form-control form-control-sm" style="width: auto;" value="{{ request('date_from') }}" onchange="this.form.submit()">
-                <span class="text-muted small">to</span>
-                <input type="date" name="date_to" class="form-control form-control-sm" style="width: auto;" value="{{ request('date_to') }}" onchange="this.form.submit()">
+                <div class="d-flex align-items-center gap-1">
+                    <input type="date" name="date_from" class="form-control form-control-sm" style="width: auto;" value="{{ request('date_from') }}" onchange="this.form.submit()">
+                    <span class="text-muted small">to</span>
+                    <input type="date" name="date_to" class="form-control form-control-sm" style="width: auto;" value="{{ request('date_to') }}" onchange="this.form.submit()">
+                </div>
                 <a href="{{ route('admin.ai.logs') }}" class="btn btn-sm btn-outline-secondary" title="Clear Filters"><i class="fa-solid fa-xmark"></i></a>
             </form>
         </div>

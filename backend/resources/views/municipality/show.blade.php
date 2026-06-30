@@ -29,7 +29,7 @@
         <div class="col-lg-8">
             <!-- Case Main Details Card -->
             <div class="card card-custom p-4 mb-4">
-                <div class="d-flex align-items-center justify-content-between mb-3 border-bottom pb-2">
+                <div class="d-flex flex-column flex-sm-row align-items-start align-items-sm-center justify-content-between gap-3 mb-3 border-bottom pb-2">
                     <div>
                         <h4 class="fw-bold text-dark mb-0">{{ $case->category }} Case</h4>
                         <p class="text-secondary small mb-0">Case ID: #{{ $case->id }} &bull; Reported {{ $case->created_at->format('M d, Y H:i') }}</p>
@@ -129,7 +129,7 @@
 
         <!-- Right management panel -->
         <div class="col-lg-4">
-            <div class="card card-custom p-4 sticky-top" style="top: 24px;">
+            <div class="card card-custom p-4 sticky-lg-top" style="top: 24px;">
                 <h5 class="fw-bold mb-3"><i class="fa-solid fa-pen-to-square me-2 text-primary"></i>Action Panel</h5>
                 
                 <form action="{{ route('municipality.cases.status', $case->id) }}" method="POST" enctype="multipart/form-data">

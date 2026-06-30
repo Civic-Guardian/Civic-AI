@@ -13,7 +13,7 @@
 
     <!-- AI Configuration Form -->
     <div class="card card-custom p-4">
-        <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex flex-column flex-sm-row justify-content-between align-items-start align-items-sm-center gap-3 mb-4">
             <h5 class="fw-bold m-0"><i class="fa-solid fa-gear text-green"></i> Model Parameters</h5>
             <a href="{{ route('admin.ai-settings.history') }}" class="btn btn-sm btn-outline-secondary">
                 <i class="fa-solid fa-history"></i> Prompt History

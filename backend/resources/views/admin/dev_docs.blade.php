@@ -303,3 +303,29 @@
     </div>
 </div>
 @endsection
+
+@section('styles')
+<style>
+    @media (max-width: 991.98px) {
+        #apiTabs {
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+            -webkit-overflow-scrolling: touch;
+            border-bottom: 1px solid var(--fintech-border) !important;
+        }
+        #apiTabs .nav-item {
+            flex: 0 0 auto !important;
+        }
+        #apiTabs .nav-link {
+            padding: 1rem 0.75rem !important;
+            font-size: 0.85rem !important;
+        }
+        .container-fluid > .d-flex.mb-4 {
+            flex-direction: column !important;
+            align-items: start !important;
+            gap: 12px !important;
+        }
+    }
+</style>
+@endsection

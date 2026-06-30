@@ -66,6 +66,17 @@
         .nav-link-custom:hover, .nav-link-custom.active {
             color: var(--municipal-primary) !important;
         }
+
+        @media (max-width: 768px) {
+            main.py-4 {
+                padding-top: 1.5rem !important;
+                padding-bottom: 1.5rem !important;
+            }
+            .card-custom {
+                border-radius: 8px !important;
+                padding: 1.25rem !important;
+            }
+        }
     </style>
 </head>
 <body>
@@ -89,7 +100,7 @@
                         <a class="nav-link nav-link-custom {{ Request::is('municipality/cases*') ? 'active' : '' }}" href="{{ route('municipality.cases.index') }}"><i class="fa-solid fa-clipboard-list me-1"></i> Assigned Cases</a>
                     </li>
                 </ul>
-                <div class="d-flex align-items-center gap-3">
+                <div class="d-flex flex-column flex-lg-row align-items-start align-items-lg-center gap-3 mt-3 mt-lg-0">
                     <span class="text-secondary small"><i class="fa-solid fa-user-tie me-1"></i> Ward Officer Panel</span>
                     <a href="{{ route('admin.dashboard') }}" class="btn btn-sm btn-outline-secondary border-secondary rounded-pill px-3"><i class="fa-solid fa-arrow-right-from-bracket me-1"></i> Admin Portal</a>
                 </div>

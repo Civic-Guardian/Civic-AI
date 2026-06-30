@@ -4,7 +4,7 @@
 
 @section('content')
 <div class="container">
-    <div class="d-flex align-items-center justify-content-between mb-4">
+    <div class="d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-3 mb-4">
         <div>
             <h3 class="fw-bold text-dark mb-1">Assigned Cases Directory</h3>
             <p class="text-secondary mb-0">Search, filter, and update civic reports assigned to Kota Municipal divisions.</p>
