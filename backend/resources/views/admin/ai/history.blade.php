@@ -9,7 +9,7 @@
             <h2 class="fw-bold text-green"><i class="fa-solid fa-history"></i> Prompt Modification History</h2>
             <p class="text-muted">Audit log of all changes made to the AI classification prompt.</p>
         </div>
-        <a href="{{ route('admin.ai') }}" class="btn btn-outline-secondary">
+        <a href="{{ route('admin.ai.dashboard') }}" class="btn btn-outline-secondary">
             <i class="fa-solid fa-arrow-left"></i> Back to AI Center
         </a>
     </div>
