@@ -64,7 +64,7 @@
         .main-container {
             z-index: 2;
             width: 100%;
-            max-width: 850px;
+            max-width: 1100px;
             padding: 2rem 1rem;
         }
 
@@ -137,6 +137,19 @@
             color: #FFFFFF;
         }
 
+        .btn-glow-red {
+            background: linear-gradient(135deg, #EF4444 0%, #DC2626 100%);
+            color: #FFFFFF;
+            border: none;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-glow-red:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.45);
+            color: #FFFFFF;
+        }
+
         .btn-outline-custom {
             border: 1px solid var(--hackathon-border);
             color: #E2E8F0;
@@ -197,7 +210,7 @@
             <!-- Showcase Links Row -->
             <div class="row g-4 text-start">
                 <!-- 1. Live Deployment -->
-                <div class="col-md-4">
+                <div class="col-md-6 col-lg-3">
                     <div class="p-3 border border-secondary border-opacity-10 rounded-4 h-100 bg-black bg-opacity-20 d-flex flex-column justify-content-between">
                         <div>
                             <div class="fs-3 mb-2">🌐</div>
@@ -214,7 +227,7 @@
                 </div>
 
                 <!-- 2. Android Binary -->
-                <div class="col-md-4">
+                <div class="col-md-6 col-lg-3">
                     <div class="p-3 border border-secondary border-opacity-10 rounded-4 h-100 bg-black bg-opacity-20 d-flex flex-column justify-content-between">
                         <div>
                             <div class="fs-3 mb-2">🤖</div>
@@ -230,8 +243,25 @@
                     </div>
                 </div>
 
-                <!-- 3. Research Report -->
-                <div class="col-md-4">
+                <!-- 3. App Demo Video -->
+                <div class="col-md-6 col-lg-3">
+                    <div class="p-3 border border-secondary border-opacity-10 rounded-4 h-100 bg-black bg-opacity-20 d-flex flex-column justify-content-between">
+                        <div>
+                            <div class="fs-3 mb-2">🎥</div>
+                            <h5 class="fw-bold mb-2">Demo Video</h5>
+                            <p class="text-secondary small mb-3">Watch the live video demonstration of the citizen app road scanning & navigation flow.</p>
+                        </div>
+                        <div>
+                            <a href="https://youtu.be/gFL3nOb2P2U" class="hackathon-btn btn-glow-red" target="_blank">
+                                <i class="fa-brands fa-youtube"></i> Watch Demo
+                            </a>
+                            <div class="link-desc text-center">Android App Demo Video</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. Research Report -->
+                <div class="col-md-6 col-lg-3">
                     <div class="p-3 border border-secondary border-opacity-10 rounded-4 h-100 bg-black bg-opacity-20 d-flex flex-column justify-content-between">
                         <div>
                             <div class="fs-3 mb-2">📄</div>
